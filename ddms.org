@@ -1,0 +1,46 @@
+** David Document Management System
+*** Build It
+- Python
+- start it - it scans directory and compares to database: files could
+  be added, deleted, moved/renamed or just changed
+- somehow it should rescan for changes, manually triggered or
+  automatic based on a schedule - or could use the *watchdog* python library to
+  generate events on file system changes
+- Fundamental approach: every file has a path and a hash.
+  - If the file is still at the path, but the checksum is different,
+    then assume the file changed.
+  - If path is new, and checksum is absent, then file is added
+  - If the path is new but checksum is present in DB with the same
+    base filename then the file was moved/renamed
+  - If the path is existing but the file is gone, it has been deleted.
+- Also add a jpeg thumbnail preview for each file that is
+  added. Thumbnail cache kept in .thumbnails directory at root of doc
+  tree.
+- Each file can have an arbitrary number of labels
+  - maybe also a key=value label or separate kv array
+- Opening a folder can be done with a physical folder, a physical tree
+  (multiple levels), a virtual folder based on a label, or a
+  combination of the three. 
+- Web GUI works for opening a folder, showing previews and operations
+  upon items (one or more).
+- Database Architecture:
+  - table *labels* gives integer to label correspondence
+  - table *items* has columns for:
+    - number
+    - path
+    - preview (path to preview)
+    - checksum
+    - labels (comma-delimited string)
+    - kv (comma-delimited strings of key=value pairs)
+    - indexed columns: path, checksum; could I also make an index for
+      each item of labels, and key-values keys?
+- Database loaded into memory at startup. Written on any changes.
+- However, searches are run against the database. 
+*** Use existing
+**** Alfresco free
+***** Tomcat stuff
+  # Directory where the Tomcat 8 binary distribution resides
+  CATALINA_HOME=/usr/share/$NAME
+
+  # Directory for per-instance configuration files and webapps
+  CATALINA_BASE=/var/lib/$NAME
