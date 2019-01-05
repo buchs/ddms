@@ -1,5 +1,5 @@
 ** David Document Management System
-*** Build It
+*** Build It 
 - Python
 - start it - it scans directory and compares to database: files could
   be added, deleted, moved/renamed or just changed
