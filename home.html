@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
+      integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
+      crossorigin="anonymous"
+    />
+    <style>
+      .toggle-green {
+        color: green;
+        font-weight: bold;
+      }
+
+      .toggle-red {
+        color: red;
+        font-weight: normal;
+      }
+
+      #home-section {
+        background: url(img/large-client.jpg);
+        background-repeat: no-repeat;
+        background-size: cover;
+        background-attachment: fixed;
+        width: 100%;
+        height: auto;
+        min-height: 600px;
+      }
+      #home-section .dark-overlay {
+        /* position: absolute; */
+        background: rgba(0, 0, 0, 0.6);
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: auto;
+        min-height: 600px;
+      }
+
+      #home-section .home-inner {
+        padding-top: 20px;
+      }
+    </style>
+
+    <title>DDMS</title>
+</head>
+<body>
+
+    <!-- div class="container" -->
+      <header>
+
+        <nav class="navbar navbar-expand-sm navbar-light bg-light p-1">
+          <!-- div class="container" -->
+
+            <span class="navbar-expand-sm"></span>
+
+            <button
+              class="navbar-toggler"
+              data-toggle="collapse"
+              data-target="#navbarNav"
+            >
+                <span class="navbar-toggler-icon"></span>
+            </button>
+
+            <div class="collapse navbar-collapse" id="navbarNav">
+              <ul class="navbar-nav mr-auto">
+
+                <li class="nav-item my-0 mr-5">
+                  <img src="ddms.png" height="20"/>
+                </li>
+
+                <li class="nav-item my-0">
+                  <button
+                    id="browse-list"
+                    class="nav-button p-0 btn-sm btn-primary"
+                    onclick="showBrowseList()"
+                    data-toggle="collapse"
+                    data-target=".navbar-collapse.show"
+                    >Browse List</button
+                  >
+                </li>
+
+                <li class="">
+                    <span class="my-0 ml-15"> &nbsp; &nbsp; Search Parameters: &nbsp; </span>
+                </li>
+
+                <li class="my-0 p-0" onclick="toggle_tree_dir()">
+                      <span id="toggle-tree" class="toggle-red"   >Tree</span> /
+                      <span id="toggle-dir"  class="toggle-green" >Dir</span>
+                     &nbsp;  &nbsp;
+                </li>
+
+                <li class="my-0">
+                  <span class="ml-10">Labels</span>
+                </li>
+
+              </ul>
+            </div>
+
+        </nav>
+      </header>
+
+
+      <script>
+        var tree_dir_state = 'dir';
+
+        function toggle_tree_dir() {
+            var toggle_tree = jQuery('#toggle-tree');
+            var toggle_dir  = jQuery('#toggle-dir');
+
+            if (tree_dir_state == 'dir') {
+                tree_dir_state = 'tree';
+                toggle_tree.removeClass('toggle-red');
+                toggle_tree.addClass('toggle-green');
+                toggle_dir.removeClass('toggle-green');
+                toggle_dir.addClass('toggle-red');
+            } else {
+                tree_dir_state = 'dir';
+                toggle_tree.removeClass('toggle-green');
+                toggle_tree.addClass('toggle-red');
+                toggle_dir.removeClass('toggle-red');
+                toggle_dir.addClass('toggle-green');
+            }
+        }
+
+        function clearMenu() {
+          menu_link = menu_state + 'link';
+          document.getElementById(menu_state).style = 'display:none';
+          var classparts = document.getElementById(menu_link).classList;
+          classparts.remove('active');
+          document.getElementById(menu_link).classList = classparts;
+        }
+
+        function setMenu(new_state) {
+          menu_link = new_state + 'link';
+          document.getElementById(new_state).style = 'display';
+          classparts = document.getElementById(menu_link).classList;
+          classparts.add('active');
+          classparts = document.getElementById(
+            menu_link
+          ).classList = classparts;
+          menu_state = new_state;
+        }
+
+        function showServices() {
+          clearMenu();
+          setMenu('services');
+        }
+
+        function showAboutme() {
+          clearMenu();
+          setMenu('aboutme');
+        }
+        function showContact() {
+          clearMenu();
+          setMenu('contact');
+        }
+        function showLocation() {
+          clearMenu();
+          setMenu('location');
+        }
+        function contactNotReady() { alert("This is juts for show now"); }
+      </script>
+      <script
+        src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
+        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
+        crossorigin="anonymous"
+      ></script>
+      <script
+        src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"
+        integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49"
+        crossorigin="anonymous"
+      ></script>
+      <script
+        src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/js/bootstrap.min.js"
+        integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy"
+        crossorigin="anonymous"
+      ></script>
+
+    <!-- /div -->
+
+</body>
+</html>
