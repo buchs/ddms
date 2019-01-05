@@ -8,13 +8,13 @@ INDEX_HTM = '''My first web app! By <strong>{{ author }}</strong>.'''
 
 @route('/')
 def index():
-    "routing for /"
+    """routing for /"""
     return template(INDEX_HTM, author='Kevin Buchs')
 
 
 @route('/name/<name>')
 def xname(name):
-    "routing for /name/<name>"
+    """routing for /name/<name>"""
     return template(INDEX_HTM, author=name)
 
 
@@ -23,7 +23,7 @@ if __name__ == '__main__':
     run(host='0.0.0.0', port=PORT, debug=True)
 
 
-#pylint: disable-pointless-string-statement
+# pylint: disable-pointless-string-statement
 COMMENTS = """
 What does the UI look like?
 
