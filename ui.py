@@ -5,11 +5,40 @@ from bottle import route, run, template
 
 INDEX_HTM = '''My first web app! By <strong>{{ author }}</strong>.'''
 
+### Initialize database connection
+DATABASE_PATH = Path('C:\\Users\\dbuchs\\Dropbox\\data.sqlite').expanduser().resolve()
+db_connection_string = 'sqlite+pysqlite:///' + str(DATABASE_PATH)
+db_engine = create_engine(db_connection_string)
+db_conn = db_engine.connect()
+metadata = MetaData()
+tb_items = Table('items', metadata,
+                      Column('path', String, primary_key=True, index=True),
+                      Column('shahash', String, index=True),
+                      Column('thumb', String),
+                      Column('labels', String))
+tb_labels = Table('labels', metadata,
+                       Column('label', String, index=True))
+
 
 @route('/')
 def index():
     """routing for /"""
     return template(INDEX_HTM, author='Kevin Buchs')
+
+### Route for serving up static files -- needed
+### for serving the thumbnails
+@route('/static/<path:path>')
+def callback(path):
+    return static_file(path, root="C:\\")
+
+
+### Route for showing all the items in the items table
+### -- calls up the show_all.tpl template file
+@route('/showall')
+def showall():
+    sel = sqlselect([tb_items.c.path, tb_items.c.thumb, tb_items.c.labels])
+    result = db_conn.execute(sel)
+    return template('show_all',rows=result.fetchall())
 
 
 @route('/name/<name>')
