@@ -1,7 +1,14 @@
 """ provides GUI """
 
 import os
-from bottle import route, run, template
+
+from bottle import route, run, template, Bottle, static_file
+
+from sqlalchemy import create_engine, Table, Column, String, MetaData
+from sqlalchemy import select as sqlselect
+
+from pathlib import Path
+
 
 INDEX_HTM = '''My first web app! By <strong>{{ author }}</strong>.'''
 
@@ -19,6 +26,9 @@ tb_items = Table('items', metadata,
 tb_labels = Table('labels', metadata,
                        Column('label', String, index=True))
 
+### Set this constant to define the root dir for serving static files
+LOCAL_ROOT = "C:\\Users\\dbuchs\\Dropbox\\"
+
 
 @route('/')
 def index():
@@ -29,8 +39,7 @@ def index():
 ### for serving the thumbnails
 @route('/static/<path:path>')
 def callback(path):
-    return static_file(path, root="C:\\")
-
+    return static_file(path, root=LOCAL_ROOT)
 
 ### Route for showing all the items in the items table
 ### -- calls up the show_all.tpl template file
