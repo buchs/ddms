@@ -33,6 +33,7 @@ import queue
 from pathlib import Path
 from hashlib import sha512  # get sha 512 bit hash with sha512(string)
 from shutil import rmtree
+from threading import Thread
 
 # needed setup: pip3.6 install preview_generator, watchdog and sqlalchemy
 from preview_generator.manager import PreviewManager
@@ -40,6 +41,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from sqlalchemy import create_engine, Table, Column, String, MetaData
 from sqlalchemy import select as sqlselect
+from bottle import route, run, template
 
 # Constants that may need to be changed
 # start at the root level, e.g. c:/Users/david/...
@@ -52,6 +54,8 @@ DATABASE_PATH = Path('/home/buchs/Dropbox/DDMS/data.sqlite').expanduser().resolv
 EXCLUDE_EXTENSIONS = ['sqlite']
 IGNORED_DIRECTORIES = [Path('.thumbnails')]
 
+NETWORK_PORT = 8080
+
 LOGGING_FORMAT = '%(asctime)-15s  %(message)s'
 logging.basicConfig(format=LOGGING_FORMAT)
 LOG = logging.getLogger('DDMS')
@@ -61,6 +65,8 @@ LOG.setLevel('INFO')
 # monitoring which runs in another thread.
 QUEUE = queue.Queue()
 
+with open('home.html') as fp:
+    HOME_PAGE = fp.read()
 
 class DDMSException(Exception):
     """basic custom exception"""
@@ -348,7 +354,6 @@ class DDMSSingleton:
         # tests for the list to be not empty and the first item is True
         return result and result[0]
 
-    # Run this in subprocess
     def monitor_filesystem(self):
         """
         starts up the file system monitor and waits for a keyboard interrupt
@@ -440,6 +445,31 @@ class DDMSSingleton:
     def run_web_ui(self):
         """start up the web server in another process"""
 
+        website_files = ['/js/jstree/theme-default/style.min.css','/ddms.png','/js/jquery-3.3.1.js',
+                         '/js/popper.min.js', '/js/bootstrap.min.js', '/js/jstree/jstree.min.js']
+        for n in range(len(website_files)):
+            wf = website_files[n]
+            @route(wf)
+            def
+            
+
+        @route('/')
+        def index():
+            """routing for /"""
+            return HOME_PAGE
+
+        @route('/name/<name>')
+        def xname(name):
+            """routing for /name/<name>"""
+            return HOME_PAGE
+
+        def run_ui():
+            run(host='0.0.0.0', port=NETWORK_PORT, debug=True)
+
+        # run the GUI in a separate thread
+        LOG.info('Web server is starting up')
+        Thread(group=None, target=run_ui, name="run_ui").start()
+
 
     def main(self):
         """top level function"""
@@ -448,7 +478,7 @@ class DDMSSingleton:
         self.initial_scan()
 
         # run the web UI in other process
-        # self.run_web_ui()
+        self.run_web_ui()
 
         # run the filesystem monitor in other process
         self.monitor_filesystem()

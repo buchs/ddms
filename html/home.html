@@ -13,6 +13,9 @@
       integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
       crossorigin="anonymous"
     />
+   	<link rel="stylesheet" href="js/jstree/theme-default/style.min.css" />
+
+
     <style>
       .toggle-green {
         color: green;
@@ -43,9 +46,8 @@
         min-height: 600px;
       }
 
-      #home-section .home-inner {
-        padding-top: 20px;
-      }
+	 .demo { overflow:auto; border:1px solid silver; min-height:100px; }
+
     </style>
 
     <title>DDMS</title>
@@ -56,34 +58,23 @@
       <header>
 
         <nav class="navbar navbar-expand-sm navbar-light bg-light p-1">
-          <!-- div class="container" -->
-
-            <span class="navbar-expand-sm"></span>
-
-            <button
-              class="navbar-toggler"
-              data-toggle="collapse"
-              data-target="#navbarNav"
-            >
-                <span class="navbar-toggler-icon"></span>
-            </button>
-
             <div class="collapse navbar-collapse" id="navbarNav">
               <ul class="navbar-nav mr-auto">
 
-                <li class="nav-item my-0 mr-5">
+                <li class="my-0 mr-5">
                   <img src="ddms.png" height="20"/>
                 </li>
 
-                <li class="nav-item my-0">
+                <li class="my-0">
                   <button
                     id="browse-list"
                     class="nav-button p-0 btn-sm btn-primary"
                     onclick="showBrowseList()"
                     data-toggle="collapse"
                     data-target=".navbar-collapse.show"
-                    >Browse List</button
                   >
+                      Browse List
+                  </button>
                 </li>
 
                 <li class="">
@@ -107,6 +98,16 @@
       </header>
 
 
+      <h1>Data format demo</h1>
+      <div id="example" class="demo"></div>
+
+
+      <script src="js/jquery-3.3.1.js"></script>
+      <script src="js/popper.min.js"></script>
+      <script src="js/bootstrap.min.js"></script>
+      <script src="js/jstree/jstree.min.js"></script>
+
+
       <script>
         var tree_dir_state = 'dir';
 
@@ -128,6 +129,33 @@
                 toggle_dir.addClass('toggle-green');
             }
         }
+
+
+        /*
+          "checkbox": { "keep_selected_style": false },
+          "plugins" : ["checkbox"],
+        */
+
+        var tree_structure = {
+          "core" : {
+            "data" : [{
+                "text" : "Root node",
+                "state" : { "opened" : true },
+                "children" : [
+                    {"text": "File.1", "icon" : "jstree-file"},
+                    {"text": "Dir.2",
+                        "children": [
+                            {"text": "Dir.3"},
+                            {"text": "File.4", "icon" : "jstree-file"}
+                        ]
+                    }]
+            }]
+          }
+        }
+
+        jQuery('#example').jstree(tree_structure);
+
+
 
         /*
         function clearMenu() {
@@ -168,23 +196,6 @@
         }
         */
       </script>
-      <script
-        src="https://code.jquery.com/jquery-3.3.1.slim.min.js"
-        integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo"
-        crossorigin="anonymous"
-      ></script>
-      <script
-        src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.3/umd/popper.min.js"
-        integrity="sha384-ZMP7rVo3mIykV+2+9J3UJ46jBk0WLaUAdn689aCwoqbBJiSnjAK/l8WvCWPIPm49"
-        crossorigin="anonymous"
-      ></script>
-      <script
-        src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/js/bootstrap.min.js"
-        integrity="sha384-ChfqqxuZUCnJSK3+MXmPNIyE6ZbWh2IMqE241rYiqJxyMiZ6OW/JmZQ5stwEULTy"
-        crossorigin="anonymous"
-      ></script>
-
-    <!-- /div -->
 
 </body>
 </html>
