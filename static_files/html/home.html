@@ -7,16 +7,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
     <!--suppress SpellCheckingInspection -->
-    <link
-      rel="stylesheet"
-      href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css"
-      integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
-      crossorigin="anonymous"
+    <link rel="stylesheet" href="/static_files/css/bootstrap.min.css"
     />
-   	<link rel="stylesheet" href="js/jstree/theme-default/style.min.css" />
+   	<link rel="stylesheet" href="/static_files/js/jstree/theme-default/style.min.css" />
 
 
     <style>
+      @page {
+          margin-right: 5px;
+          margin-left: 5px;
+      }
+
       .toggle-green {
         color: green;
         font-weight: bold;
@@ -54,7 +55,7 @@
 </head>
 <body>
 
-    <!-- div class="container" -->
+    <div class="mx-1">
       <header>
 
         <nav class="navbar navbar-expand-sm navbar-light bg-light p-1">
@@ -62,9 +63,8 @@
               <ul class="navbar-nav mr-auto">
 
                 <li class="my-0 mr-5">
-                  <img src="ddms.png" height="20"/>
+                  <img src="/static_files/img/ddms.png" height="20"/>
                 </li>
-
                 <li class="my-0">
                   <button
                     id="browse-list"
@@ -98,14 +98,48 @@
       </header>
 
 
-      <h1>Data format demo</h1>
+      <h3>Work in progress</h3>
+
+      This is what the <u>Browse List</u> will look like.<br>
       <div id="example" class="demo"></div>
 
+      <h3>Notes/Open Questions on the GUI</h3>
+    <p>What does the UI look like?
 
-      <script src="js/jquery-3.3.1.js"></script>
-      <script src="js/popper.min.js"></script>
-      <script src="js/bootstrap.min.js"></script>
-      <script src="js/jstree/jstree.min.js"></script>
+Kinds of things it should show:
+    <ol>
+<li>) a browseable listing of the whole directory tree, just text
+<li>) a display of the results of a search. Search can be from a combination of 0 or more labels and directory path or
+   directory tree. This result will have the previews inserted into it.
+<li>) a click on a file item from the browsable tree or from the search results should either open the file in a new
+   browser tab or an external tool.
+   </ol>
+
+    So, the browseable tree can be a transient GUI feature, click a button and the tree is shown. Make a selection from
+the tree and it goes away. Also needs a closer. Each item is a hyperlink. File hyperlinks open the file,
+but directory hyperlinks do a search on that directory.
+
+    <pre>Up top: [Browse List]   Search Parameters: dir / tree, directory: [txt box]  labels: [txt box]  [run search]</pre>
+
+Text boxes show the current items. May be populated from a browseable selection or typed into the box, with completion.
+With the labels box: you can type with completion for a comma delimited list or pull up a list (with current
+labels already selected.
+
+Also need an add label pop-up. Choice to lable selected or all items. Maybe we select from a little checkbox by each
+item. Do selection before accessing the label pop-up.
+
+    <h4>Open questions</h4>
+1) show should filesystem monitor communicate to the web server changes that are noticed?
+<br>2) how should the web GUI indicate changes?
+<br>and more
+
+    <hr>
+    </div>
+
+      <script src="/static_files/js/jquery-3.3.1.js"></script>
+      <script src="/static_files/js/popper.min.js"></script>
+      <script src="/static_files/js/bootstrap.min.js"></script>
+      <script src="/static_files/js/jstree/jstree.min.js"></script>
 
 
       <script>
