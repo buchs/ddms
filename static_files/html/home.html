@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/static_files/css/bootstrap.min.css"
     />
    	<link rel="stylesheet" href="/static_files/js/jstree/theme-default/style.min.css" />
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css" />
 
 
     <style>
@@ -59,7 +60,6 @@
       <header>
 
         <nav class="navbar navbar-expand-sm navbar-light bg-light p-1">
-            <div class="collapse navbar-collapse" id="navbarNav">
               <ul class="navbar-nav mr-auto">
 
                 <li class="my-0 mr-5">
@@ -70,8 +70,8 @@
                     id="browse-list"
                     class="nav-button p-0 btn-sm btn-primary"
                     onclick="showBrowseList()"
-                    data-toggle="collapse"
-                    data-target=".navbar-collapse.show"
+                    data-toggle="modal"
+                    data-target="#browse_list_modal"
                   >
                       Browse List
                   </button>
@@ -82,68 +82,116 @@
                 </li>
 
                 <li class="my-0 p-0" onclick="toggle_tree_dir()">
-                      <span id="toggle-tree" class="toggle-red"   >Tree</span> /
-                      <span id="toggle-dir"  class="toggle-green" >Dir</span>
-                     &nbsp;  &nbsp;
+                      <span id="toggle-dir"  class="toggle-green" >Dir</span> /
+                      <span id="toggle-tree" class="toggle-red"   >Tree</span>
                 </li>
 
                 <li class="my-0">
-                  <span class="ml-10">Labels</span>
+                  <span class="my-0">
+                      <span class="form-check-inline autoc">
+                          <label class="my-auto" for="selectedDirs" class=""> &nbsp; &nbsp; &nbsp; Dirs:</label>
+                          <input type="text" class="form-control-sm p-0 my-0" id="selectedDirs" placeholder="empty">
+                      </span>
+                  </span>
                 </li>
 
+                <li class="my-0">
+                  <span class="my-0">
+                      <span class="form-check-inline">
+                          <label class="my-auto" for="selectedLabels" class=""> &nbsp; &nbsp; &nbsp; Labels:</label>
+                          <input type="text" class="form-control-sm p-0 my-0"
+                                 id="selectedLabels" placeholder="NO labels selected">
+                      </span>
+                  </span>
+                </li>
               </ul>
-            </div>
-
+            </form>
         </nav>
       </header>
 
 
-      <h3>Work in progress</h3>
+        <div class="modal" id="browse_list_modal" role="dialog">
+             <div class="modal-dialog" role="document">
+                 <div class="modal-content">
+                     <div class="modal-header">
+                         <h3>Browse List</h3>
+                         <button type="button" class="close btn button-sm btn-danger ml-auto mr-0 my-0 p-0" data-dismiss="modal">
+                            &times;</button>
+                     </div>
+                     <div class="modal-body">
+                         <div id="browselist" class="demo"></div>
+                     </div>
+                 </div>
+             </div>
+         </div>
 
-      This is what the <u>Browse List</u> will look like.<br>
-      <div id="example" class="demo"></div>
+        <h4>Assignments for David</h4>
+        <ol>
+            <li>Look at the browse list. You can use Control-Click or Shift-Click to select multiple entries.
+                It doesn't really support file selection (i.e. I don't think there is not a need to choose
+                just a file for the search to run against). If you select a file, it just takes the
+                directory containing it. I thought, however, that listing the files could be helpful in
+                choosing a directory. However, I could just omit the files from the browse list. What do
+                you want?</li>
+            <li>The browse list should be fully functional. When you select one or more items, they should
+                appear, comma-delimited, in the "Dirs" field. You can also type into that field. Right now,
+                when you pop up the browse list, the assumption is that whatever you had in the Dirs field
+                is going to be overwritten. It could be made more intelligent, with the browse list
+                opening with the items from the Dirs field preselected. Thus the browse list could be used
+                additively to add directories to the ones already present.</li>
+            <li>Do you want the labels to be case sensitive? Could convert all to lower case. e.g.</li>
+            <li>The labels field (uppper right of UI) should be tested. I defined 5 labels with fruit
+                names (apple, etc.) just for playing with. Check out the completion of labels. See how
+                completion works when you have multiple, comma-delimited labels.</li>
+        </ol>
+        <h4>Notes on the GUI</h4>
+        <p>What does the UI look like? Kinds of things it should show:
+        <ol>
+            <li>) a browseable listing of the whole directory tree, just text
+            <li>) a display of the results of a search. Search can be from a combination of 0 or more labels and
+                directory path or
+                directory tree. This result will have the previews inserted into it.
+            <li>) a click on a file item from the browsable tree or from the search results should either open the file
+                in a new
+                browser tab or an external tool.
+        </ol>
 
-      <h3>Notes/Open Questions on the GUI</h3>
-    <p>What does the UI look like?
+        So, the browseable tree can be a transient GUI feature, click a button and the tree is shown. Make a selection
+        from
+        the tree and it goes away. Also needs a closer. Each item is a hyperlink. File hyperlinks open the file,
+        but directory hyperlinks do a search on that directory.
 
-Kinds of things it should show:
-    <ol>
-<li>) a browseable listing of the whole directory tree, just text
-<li>) a display of the results of a search. Search can be from a combination of 0 or more labels and directory path or
-   directory tree. This result will have the previews inserted into it.
-<li>) a click on a file item from the browsable tree or from the search results should either open the file in a new
-   browser tab or an external tool.
-   </ol>
+        <pre>Up top: [Browse List]   Search Parameters: dir / tree, directory: [txt box]  labels: [txt box]  [run search]</pre>
 
-    So, the browseable tree can be a transient GUI feature, click a button and the tree is shown. Make a selection from
-the tree and it goes away. Also needs a closer. Each item is a hyperlink. File hyperlinks open the file,
-but directory hyperlinks do a search on that directory.
+        Text boxes show the current items. May be populated from a browseable selection or typed into the box, with
+        completion.
+        With the labels box: you can type with completion for a comma delimited list or pull up a list (with current
+        labels already selected.
 
-    <pre>Up top: [Browse List]   Search Parameters: dir / tree, directory: [txt box]  labels: [txt box]  [run search]</pre>
+        Also need an add label pop-up. Choice to lable selected or all items. Maybe we select from a little checkbox by
+        each
+        item. Do selection before accessing the label pop-up.
 
-Text boxes show the current items. May be populated from a browseable selection or typed into the box, with completion.
-With the labels box: you can type with completion for a comma delimited list or pull up a list (with current
-labels already selected.
+        <h4>Open questions</h4>
+        1) show should filesystem monitor communicate to the web server changes that are noticed?
+        <br>2) how should the web GUI indicate changes?
+        <br>and more
 
-Also need an add label pop-up. Choice to lable selected or all items. Maybe we select from a little checkbox by each
-item. Do selection before accessing the label pop-up.
-
-    <h4>Open questions</h4>
-1) show should filesystem monitor communicate to the web server changes that are noticed?
-<br>2) how should the web GUI indicate changes?
-<br>and more
-
-    <hr>
+        <hr>
     </div>
 
-      <script src="/static_files/js/jquery-3.3.1.js"></script>
-      <script src="/static_files/js/popper.min.js"></script>
-      <script src="/static_files/js/bootstrap.min.js"></script>
-      <script src="/static_files/js/jstree/jstree.min.js"></script>
+     <script src="/static_files/js/jquery-3.3.1.js"></script>
+     <script src="/static_files/js/popper.min.js"></script>
+     <script src="/static_files/js/bootstrap.min.js"></script>
+     <script src="/static_files/js/jstree/jstree.min.js"></script>
+     <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
 
+     <script type="text/javascript">
 
-      <script>
+        const root_node_name = '{root}';
         var tree_dir_state = 'dir';
+
+        /*--------------- For Tree/Dir Indicator -----------------*/
 
         function toggle_tree_dir() {
             var toggle_tree = jQuery('#toggle-tree');
@@ -165,71 +213,89 @@ item. Do selection before accessing the label pop-up.
         }
 
 
-        /*
-          "checkbox": { "keep_selected_style": false },
-          "plugins" : ["checkbox"],
-        */
+        /*--------------- For Browse List -----------------*/
 
-        var tree_structure = {
-          "core" : {
-            "data" : [{
-                "text" : "Root node",
-                "state" : { "opened" : true },
-                "children" : [
-                    {"text": "File.1", "icon" : "jstree-file"},
-                    {"text": "Dir.2",
-                        "children": [
-                            {"text": "Dir.3"},
-                            {"text": "File.4", "icon" : "jstree-file"}
-                        ]
-                    }]
-            }]
-          }
+        function browseListChanges(first, second) {
+            let jst = jQuery('#browselist').jstree();
+            var selected_paths = [];
+            for(let x = 0; x < second.selected.length; x++) {
+                const node = jst.get_node(second.selected[x]);
+                var path = jst.get_path(node);
+                path.shift(); // remove root
+                // if a file was selected, remove the end of the array to just have directory
+                if (node.icon == 'jstree-file') path.pop()
+                selected_paths.push(path.join('/'));
+            }
+            const component = jQuery('#selectedDirs');
+            component.val(selected_paths.join(','));
         }
 
-        jQuery('#example').jstree(tree_structure);
 
+        function showbl_callback(data) {
+            let tree_struct = JSON.parse(data);
+            tree_struct.plugins = ["changed", "wholerow"];
+            let component = jQuery('#browselist');
+            // component.on("changed.jstree", browseListChanges);
+            component.on('select_node.jstree', browseListChanges);
+            component.on('deselect_node.jstree', browseListChanges);
+            component.jstree(tree_struct);
+        };
 
+        function showBrowseList() {
+            jQuery.get('/browselist', {}, showbl_callback);
+        }
 
-        /*
-        function clearMenu() {
-          menu_link = menu_state + 'link';
+        // -------------- Handling labels field -----------------------------------
+
+        // We need to have an up-to-date list of labels from the database.
+        // Start with copy here (at loading) and then update it whenever
+        // we are about editing the labels.
+        function refresh_labels_cb(data) {
+            labels = JSON.parse(data);
+            console.log('labels: ' + labels);
+        }
+
+        function refresh_labels() {
+            jQuery.get('/labels', {}, refresh_labels_cb);
+        }
+        refresh_labels();  // do it now
+
+        function custom_matcher(request, response) {
+            const request_term = $.ui.autocomplete.escapeRegex(request.term);
+            const elements = request_term.toString().split('\\,');
+            const last_input = elements[elements.length-1];
+            var completed = '';
+            for (let i = 0; i < elements.length - 1; i++) {
+                completed += elements[i] + ',';
+            }
+            var matcher = new RegExp("^" + last_input, "i");
+            var results = $.grep(labels, function(item) {
+                     return matcher.test(item);
+            });
+            // append the other, already-complete labels (comma delimited)
+            for (let i = 0; i < results.length; i++) {
+                results[i] = completed + results[i];
+            }
+            response(results);
+        };
+
+        // Register a click listener
+        // const labels = ['apple','orange','banana','pear'];
+        const selected_labels = jQuery('#selectedLabels');
+
+        jQuery( function register() {
+            selected_labels.autocomplete({ source: custom_matcher});
+        });
+
+        /* ---------- Notes for reference --------------------------
+          modifying element class
           document.getElementById(menu_state).style = 'display:none';
           var classparts = document.getElementById(menu_link).classList;
           classparts.remove('active');
           document.getElementById(menu_link).classList = classparts;
-        }
-
-        function setMenu(new_state) {
-          menu_link = new_state + 'link';
-          document.getElementById(new_state).style = 'display';
-          classparts = document.getElementById(menu_link).classList;
-          classparts.add('active');
-          classparts = document.getElementById(
-            menu_link
-          ).classList = classparts;
-          menu_state = new_state;
-        }
-
-        function showServices() {
-          clearMenu();
-          setMenu('services');
-        }
-
-        function showAboutme() {
-          clearMenu();
-          setMenu('aboutme');
-        }
-        function showContact() {
-          clearMenu();
-          setMenu('contact');
-        }
-        function showLocation() {
-          clearMenu();
-          setMenu('location');
-        }
         */
-      </script>
+
+     </script>
 
 </body>
 </html>

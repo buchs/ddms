@@ -21,8 +21,10 @@ another, and rename a file keeping it in the same directory.
 import os
 import sys
 import time
-import logging
+import json
 import queue
+import random
+import logging
 import webbrowser
 
 # About making use of pathlib, instead of os.path and some others.
@@ -30,7 +32,8 @@ import webbrowser
 # the preview generator and the database storage. Otherwise, we can do
 # most things from a Path object, such as reading a byte array from the
 # file referenced by the Path object.
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
+
 from hashlib import sha512  # get sha 512 bit hash with sha512(string)
 from shutil import rmtree
 from threading import Thread
@@ -43,8 +46,8 @@ from watchdog.events import FileSystemEventHandler
 from sqlalchemy import create_engine, Table, Column, String, MetaData
 from sqlalchemy import select as sqlselect
 from bottle import route as bottle_route, run as bottle_run,  \
-    static_file, response as bottle_response
-# could include:  template,
+    static_file
+# could include:  template,, response as bottle_response
 
 # Constants that may need to be changed
 # start at the root level, e.g. c:/Users/david/...
@@ -70,6 +73,7 @@ IGNORED_DIRECTORIES = [Path('.thumbnails')]
 NETWORK_PORT = 8080
 
 # THINGS CONFIGURED TO SUPPORT DEVELOPMENT
+DESIRED_FRUITS = ['apple', 'banana', 'orange', 'peaches', 'plums']
 LOG_FILE = 'ddms.log' # just file name
 LOGGING_FORMAT = '%(asctime)-15s  %(message)s'
 logging.basicConfig(format=LOGGING_FORMAT)
@@ -83,8 +87,12 @@ bottle_debug(mode=True)
 
 
 # This will be a work queue for items from file system
-# monitoring which runs in another thread.
+# monitoring and web server which run in other threads.
 QUEUE = queue.Queue()
+
+# This is for the main thread to return results to the
+# GUI thread.
+RESULTSQ = queue.Queue()
 
 
 class DDMSException(Exception):
@@ -152,7 +160,7 @@ class DDMSFilesystemEventHandler(FileSystemEventHandler):
 
         src = make_path_relative(event.src_path)
         if src is not None:
-            QUEUE.put({"action": "add", "src": src})
+            QUEUE.put({"type": "filesystem-monitor", "action": "add", "src": src})
             # log_message = f'File system event: add item: {src}'
             # LOG.info(log_message)
 
@@ -161,7 +169,7 @@ class DDMSFilesystemEventHandler(FileSystemEventHandler):
         """triggered by a file system event, a file is deleted, so delete from database"""
         src = make_path_relative(event.src_path)
         if src is not None:
-            QUEUE.put({"action": "delete", "src": src})
+            QUEUE.put({"type": "filesystem-monitor", "action": "delete", "src": src})
             # log_message = f'File system event: delete item: {src}'
             # LOG.info(log_message)
 
@@ -170,7 +178,7 @@ class DDMSFilesystemEventHandler(FileSystemEventHandler):
         """triggered by a file system event, a file's content is updated, so update database"""
         src = make_path_relative(event.src_path)
         if src is not None:
-            QUEUE.put({"action": "modified", "src": src})
+            QUEUE.put({"type": "filesystem-monitor", "action": "modified", "src": src})
             # log_message = f'File system event: modify item: {src}'
             # LOG.info(log_message)
 
@@ -180,9 +188,75 @@ class DDMSFilesystemEventHandler(FileSystemEventHandler):
         src = make_path_relative(event.src_path)
         dest = make_path_relative(event.dest_path)
         if src is not None and dest is not None:
-            QUEUE.put({"action": "moved", "src": src, "dest": dest})
+            QUEUE.put({"type": "filesystem-monitor", "action": "moved", "src": src, "dest": dest})
             # log_message = f'File system event: path mod item: {src} to {dest}'
             # LOG.info(log_message)
+
+
+class BLPathTreeNode:
+    """object is the node in directory tree for browse list"""
+    def __init__(self, path, parent=None):
+        self.path = path
+        self.parent = parent
+        self.children = []
+
+    def repr_children(self):
+        """iterates over the children of a node, returning the recursive depth-first
+        grandchildren"""
+        output = ''
+        for child in self.children:
+            output += repr(child)
+            output += ', '
+        # omit the final comma and space
+        return output[0:-2]
+
+    def __repr__(self):
+        """
+        Override this function so we can output a JSON string representation via repr(obj)
+        """
+        output = f'{{"text": "{self.path}", '
+        if self.repr_children():   # i.e. are there children, if no, this is a file node
+            output += '"children": ['
+            output += self.repr_children()
+            output += ']}'
+        else:
+            output += '"icon": "jstree-file"}'
+        return output
+
+    def add_child(self, path):
+        """Add a new child on browse list tree"""
+        child = BLPathTreeNode(path, self)
+        self.children.append(child)
+        return child
+
+    def delete_tree(self):
+        """Delete a child from browse list tree"""
+        for child in self.children:
+            child.delete_tree()
+            del child
+
+    def create_path(self, path_parts):
+        """Prove a given path exists or create it, all the while finding the tree
+        node at the bottom"""
+        cp_node = GLOBAL_DATA.browse_list_object
+        creating = False
+        for pindex in range(len(path_parts)-1): # stop one short of filename (last element)
+            if not creating:
+                found_it = False
+                for child in cp_node.children:
+                    if child.path == path_parts[pindex]:
+                        cp_node = child
+                        found_it = True
+                        break # inner for loop
+                if not found_it:
+                    creating = True  # we need to create, starting from here
+                    returned = cp_node.add_child(path_parts[pindex])
+                    cp_node = returned # and then we just let the loop iterate.
+            else:
+                returned = cp_node.add_child(path_parts[pindex])
+                cp_node = returned  # and then we just let the loop iterate.
+
+        return cp_node
 
 
 # noinspection Pylint
@@ -195,6 +269,7 @@ class GlobalData:
     # I have what I need to have for this class. leave me alone.
     def __init__(self):
         """initialize this class"""
+
         # startup preview generator - this guy wants to emit useless messages
         # when starting, tried to throw away with assignmet to os.devnull. That
         # was broken, it wants to see a real file. So, try a temporary file.
@@ -204,7 +279,7 @@ class GlobalData:
         sys.stdout = tempfile
         try:
             self.preview = PreviewManager(THUMBNAIL_DIRECTORY, create_folder=True)
-        except (e):
+        except:
             LOG.error('Exception in Preview Generator startup')
             # LOG.error(str(e))
 
@@ -241,6 +316,23 @@ class GlobalData:
                 # have to make these paths match filesystem paths...
                 self.all_paths.add(Path(row[0]))
 
+        # fill lablels with fruits for dev testing, unless they already exist
+        sel = sqlselect([self.tb_labels.c.label, ]).order_by('label')
+        result = self.db_conn.execute(sel)
+        rows = result.fetchall()
+        result.close()
+        existing = [str(r[0]) for r in rows]
+        # which of desired_fruits is not already in table?
+        fruits = [f for f in DESIRED_FRUITS if f not in existing]
+        insert = self.tb_labels.insert(None)
+        for label in fruits:
+            LOG.info('inserting label %s', label)
+            self.db_conn.execute(insert, label=label)
+
+        # Other important data structures
+        self.browse_list_object = None
+        self.updates = False
+        self.updates_browse_list = False
 
 def search_path(pathname):
     """search database according to pathname"""
@@ -291,16 +383,24 @@ def get_hash(pathname):
 
 def add_item(pathname, shahash=None):
     """add a completely new item to database"""
+    LOG.info('adding item')
     str_pathname = str(pathname)
     if shahash is None:
         shahash = get_hash(pathname)
     # generate jpeg thumbnail file and capture its path as string
     preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
+    LOG.info('Preview generation complete')
+    # just for development - we will assign a random fruit label 50% of the time.
+    random_int = random.randrange(2*len(DESIRED_FRUITS))
+    if random_int < len(DESIRED_FRUITS):
+        labels = DESIRED_FRUITS[random_int]
+    else:
+        labels = ''
 
     insert = GLOBAL_DATA.tb_items.insert(None)
     GLOBAL_DATA.db_conn.execute(insert, path=str_pathname, shahash=shahash,
-                                thumb=preview, labels='')
-    LOG.info('Add item: %s', pathname)
+                                thumb=preview, labels=labels)
+    LOG.info('Added item: %s', pathname)
 
 
 def update_item_path(old_pathname, new_pathname):
@@ -379,7 +479,7 @@ def add_if_missing(pathname):
 
 
 def found_create(qlist, queue_entry):
-    """helper for monitor_filesystem() """
+    """helper for monitor_queue (from filesystem monitor) """
     src = queue_entry['src']
     # my most complex list comprehension follows
     result = [True for alpha in qlist if alpha['src'] == src and alpha['action'] == 'add']
@@ -389,42 +489,68 @@ def found_create(qlist, queue_entry):
 
 def monitor_filesystem():
     """
-    starts up the file system monitor and waits for a keyboard interrupt
+    starts up the file system monitor which runs in a separate thread
     """
     LOG.info('Starting file system monitor')
     GLOBAL_DATA.observer = Observer()
     GLOBAL_DATA.observer.schedule(DDMSFilesystemEventHandler(),
                                   str(ROOT_DIRECTORY), recursive=True)
     GLOBAL_DATA.observer.start()
-    # The watchdog monitor is too noisy, sending events that are not interesting,
-    # like a create event and 12 modify events. To avoid extra work, buffer these events
-    # for 15 seconds. Also a create followed by modified are combined into one create.
+
+
+
+def monitor_queue():
+    """
+    We have two separate threads: 1) running the file system monitor and 2) running the bottle
+    web server. We need to have this original thread look at a queue of work items coming from
+    those other threads. And, this also monitors for a Control-C keyboard input.
+    """
+
+    # The complexity here is almost entirely driven by the events coming from the
+    # file system monitor. The file system monitor is too noisy, sending events that are not
+    # interesting, like a create event and 12 modify events. To avoid extra work, buffer these
+    # events for 15 seconds. Also a create followed by modified are combined into one create.
     # When a event arrives, it is first inspected to see if it is a modified following
     # a create, and if so, it is dropped. Otherwise it is added to a queue with a timestamp
     # of 15 seconds into the future. We then monitor the queue to see if the top event's
-    # time is up. If it is, then that event is processed.
+    # time is up. If it is, then that event is processed. Think of it as one queue feeding
+    # another queue, and that other one has a time buffer on it.
+
     qlist = list()
     queue_delay = 15  # seconds
+    time_counter = 0
 
     # pylint: disable=misplaced-comparison-constant
     try:
         while True:
-            time.sleep(1)
+            time.sleep(0.1) # need to speed this up because the UI is waiting.
             while not QUEUE.empty():
                 queue_entry = QUEUE.get_nowait()
-                LOG.info("Dequeued filesystem event: %s, src: %s",
-                         queue_entry['action'], queue_entry['src'])
-                # squash modified events right after create
-                if 'modified' == queue_entry['action'] \
-                        and found_create(qlist, queue_entry):
-                    pass  # squash
-                else:
-                    queue_entry['timestamp'] = time.time() + queue_delay
-                    qlist.append(queue_entry)  # add to second queue
+                if queue_entry['type'] == 'filesystem_monitor':
+
+                    LOG.info("Dequeued filesystem event: %s, src: %s",
+                             queue_entry['action'], queue_entry['src'])
+                    # squash modified events right after create
+                    if 'modified' == queue_entry['action'] \
+                            and found_create(qlist, queue_entry):
+                        pass  # squash
+                    else:
+                        queue_entry['timestamp'] = time.time() + queue_delay
+                        qlist.append(queue_entry)  # add to second queue
+
+                elif queue_entry['type'] == 'gui':
+                    # run the provided query and return the results on the results queue
+                    result = GLOBAL_DATA.db_conn.execute(queue_entry['select'])
+                    RESULTSQ.put({'rows': result.fetchall()})
+                    result.close()
+
                 QUEUE.task_done()
-            # now process events whose time is up, but only do 1 each second
+
+            # now process events from the secondary queue whose time is up,
+            # but only do 1 each 1 second of loop iteration
             # in order to not consume too much time, impacting GUI
             if qlist and time.time() > qlist[0]['timestamp']:
+
                 queue_entry = qlist.pop(0)
                 action = queue_entry['action']
                 src = queue_entry['src']
@@ -438,8 +564,13 @@ def monitor_filesystem():
                 if action == 'moved':
                     update_item_path(Path(src), Path(queue_entry['dest']))
             # done, back to sleep
+            time_counter += 1
+            if time_counter > 9:
+                time_counter = 0
+
     except KeyboardInterrupt:
         GLOBAL_DATA.observer.stop()
+
     GLOBAL_DATA.observer.join()  # wait for observer thread to exit
 
 
@@ -490,32 +621,6 @@ def showall():
     return 'still under construction'
 
 
-# def provide_static_file(path):
-#     """
-#     you pass the path, it returns the contents for static files, i.e.
-#     those under static_files/ directory
-#     """
-#
-#     if sys.platform == 'linux':
-#         new_path = path
-#     else:
-#         new_path = str(PureWindowsPath(path))
-#     # new_path = str(SCRIPT_DIR.joinpath(addition))
-#     LOG.info('serving static path %s', new_path)
-#     # bottle_response.set_header('Kevin', 'Buchs')
-#     results = static_file(new_path, root=str(SCRIPT_DIR))
-#     LOG.info('static_file(%s} returns %s as results', new_path, type(results))
-#     return results
-    # instead...
-    # full_path = SCRIPT_DIR.joinpath(new_path)
-    # with full_path.open() as f_p:
-    #    static_content = f_p.read()
-    # LOG.info('got %s, content is: %s',full_path,static_content)
-    # return(static_content)
-    # bottle_response.body = static_content
-    # return (bottle_response)
-
-
 @bottle_route('/static_files/<path:path>')
 def serve_static(path):
     """
@@ -528,9 +633,9 @@ def serve_static(path):
     try:
         LOG.info('serving static path %s', path)
         return static_file('static_files/'+path, root=str(SCRIPT_DIR))
-    except e:
+    except:
         LOG.info('Exception in static_file(): ')
-        LOG.info(e)
+        LOG.info(sys.exc_info())
         return "error"
 
 
@@ -543,13 +648,147 @@ def handle_home_path():
     return static_file(path, root=str(SCRIPT_DIR))
 
 
-# bottle_response.set_header('Kevin', 'Buchs')
-# bottle_response.status = 200
+@bottle_route('/browselist')
+def browse_list():
+    "return JSON data on the file/directory structure"
 
-# @bottle_route('/name/<name>')
-# def xname(name):
-#     """routing for /name/<name>"""
-#     return f'you entered a url of /name/${name}'
+    # do I NOT already have up-to-date browse list?
+    if GLOBAL_DATA.browse_list_object is None or GLOBAL_DATA.updates_browse_list:
+
+        if GLOBAL_DATA.browse_list_object is not None:
+            # delete the existing tree of BLPathTreeNode objects
+            GLOBAL_DATA.browse_list_object.delete_tree()
+            del GLOBAL_DATA.browse_list_object
+
+        # I am now updating it, so clear updates flag
+        GLOBAL_DATA.updates_browse_list = False
+
+        # a little safety check before the database query
+        if GLOBAL_DATA.tb_items is None:
+            LOG.error(f'GLOBAL_DATA.tb_items is None in search_path')
+            raise NotImplementedError('Database data structures not ready')
+
+        # do database query - this must happen in the main thread because that
+        # is where the SQLite objects are created and must be used. So put
+        # the request on the queue QUEUE and wait for the results on the queue
+        # RESULTSQ
+        sel = sqlselect([GLOBAL_DATA.tb_items.c.path,]).order_by('path')
+        QUEUE.put({'type': 'gui', 'select': sel})
+
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        rows = queue_entry['rows']
+        RESULTSQ.task_done()
+
+        # convert to tree representation
+        current_directory = Path('')
+        current_node = BLPathTreeNode('{root}')
+        GLOBAL_DATA.browse_list_object = current_node
+
+        # REMEMBER: every row returned has a file and not a directory
+        for row in rows:
+            new_file_path = Path(row[0])
+            new_file_parts = new_file_path.parts
+
+            current_parts = current_directory.parts
+            # test for the case that the new_file or current is just a file, with no directory given
+            if len(new_file_parts) == 1:
+                # new is just a file, what about current?
+                if len(current_parts) == 1:
+                    # ok, we are transitioning from top level file to top level file,
+                    # no directory action necessary
+                    pass
+                else:
+                    # new is just a file, old was a subdirectory, so we can drop dir stuff
+                    current_directory = Path('')
+                    current_node = GLOBAL_DATA.browse_list_object
+            else:
+                # now, new file in subdirectory, what about current
+                if len(current_parts) == 1:
+                    # current is top-level file, now build dir structure of new, if it doesn't exist
+                    current_node = current_node.create_path(new_file_parts)
+                    current_node.add_child(new_file_parts[-1]) # then add the file
+                else:
+                    # have we come to the same directory?
+                    if len(current_parts) == len(new_file_parts) - 1:
+                        idx = 0
+                        no_deal = False
+                        for current_part in current_parts:
+                            if current_part != new_file_parts[idx]:
+                                no_deal = True
+                                break
+                            idx += 1
+                        if no_deal:
+                            # just work through the path
+                            current_node = current_node.create_path(new_file_parts)
+                            current_node.add_child(new_file_parts[-1])
+                        else:
+                            # current directory is the same as the new one, so just add the node
+                            current_node.add_child(new_file_parts[-1])
+                    else: # new file parts has different number of parts than current, so
+                        # just work through the path
+                        current_node = current_node.create_path(new_file_parts)
+                        current_node.add_child(new_file_parts[-1])
+
+
+        # processed all data returned from dB query. Now, generate the output.
+    # else - already had an up-to-date browse list
+
+
+    final_output = '{"core": {"data": [{"text": "{root}", "state": {"opened": true},"children": ['
+    final_output += GLOBAL_DATA.browse_list_object.repr_children()
+    final_output += ']}]}}'
+
+    return final_output
+
+    # from above, for output, we need a string like this:  {
+    #     "core": {
+    #         "data": [{
+    #             "text": "Root node",
+    #             "state": {"opened": true},
+    #             "children": [
+    #                 {"text": "File.1", "icon": "jstree-file"},
+    #                 {"text": "Dir.2",
+    #                  "children": [
+    #                      {"text": "Dir.3"},
+    #                      {"text": "File.4", "icon": "jstree-file"}
+    #                  ]
+    #                  }]
+    #         }]
+    #     }
+    # }
+
+
+@bottle_route('/labels')
+def get_labels():
+    "return JSON of array of labels"
+
+    sel = sqlselect([GLOBAL_DATA.tb_labels.c.label, ]).order_by('label')
+    QUEUE.put({'type': 'gui', 'select': sel})
+
+    while RESULTSQ.empty():
+        time.sleep(0.01)  # Again, keep this timing tight, user is waiting!
+
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    results = [str(r[0]) for r in rows]
+
+    return json.dumps(results)
+
+
+# other bottle notes
+    # bottle_response.set_header('Kevin', 'Buchs')
+    # bottle_response.status = 200
+
+    # @bottle_route('/name/<name>')
+    # def xname(name):
+    #     """routing for /name/<name>"""
+    #     return f'you entered a url of /name/${name}'
 
 
 def run_ui():
@@ -574,10 +813,14 @@ def main():
     # run the filesystem monitor in other process
     monitor_filesystem()
 
+    # in this process, run a loop looking for work on the QUEUE or a
+    # keyboard interrupt.
+    monitor_queue()
+
 
 if __name__ == "__main__":
     # for testing only, clear the board before we run if True
-    WIPE_EXISTING = False
+    WIPE_EXISTING = True
     if WIPE_EXISTING:
         if DATABASE_PATH.exists():
             DATABASE_PATH.unlink()
