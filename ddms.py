@@ -59,7 +59,7 @@ if 'USER' in os.environ and os.environ['USER'] == 'buchs' and sys.platform == 'l
     SCRIPT_DIR = Path('/home/buchs/Dropbox/DDMS')
 else:
     # Should be David
-    ROOT_DIRECTORY = Path("C:\\Users\\dbuchs\\Dropbox\\").expanduser().resolve()
+    ROOT_DIRECTORY = Path("C:\\Users\\dbuchs\\Dropbox\\To File\\test").expanduser().resolve()
     DATABASE_PATH = Path('C:\\Users\\dbuchs\\Dropbox\\data.sqlite').expanduser().resolve()
     #  windows: 'C:\\path\\to\\database.db'   # those are backslashes doubled
     # you can nest this in the root directory, be sure the file ends with .sqlite
@@ -388,8 +388,15 @@ def add_item(pathname, shahash=None):
     if shahash is None:
         shahash = get_hash(pathname)
     # generate jpeg thumbnail file and capture its path as string
-    preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
-    LOG.info('Preview generation complete')
+    try:
+        preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
+        LOG.info('Preview generation complete')
+    except Exception as e:
+        ## handle unsupported mimetype exception -- create blank jpg file
+        preview = str(THUMBNAIL_DIRECTORY.joinpath(str(random.randrange(100000000,999999999)) + '.jpeg'))
+        open(preview, 'a').close()
+        LOG.info('Preview generation failed, dummy thumbnail created')
+        
     # just for development - we will assign a random fruit label 50% of the time.
     random_int = random.randrange(2*len(DESIRED_FRUITS))
     if random_int < len(DESIRED_FRUITS):
