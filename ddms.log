@@ -97,3 +97,190 @@ serving static path js/jstree/jstree.min.js
 serving static path img/ddms.png
 serving static path js/jstree/theme-default/throbber.gif
 serving static path js/jstree/theme-default/32px.png
+First time database setup completed.
+inserting label apple
+inserting label banana
+inserting label orange
+inserting label peaches
+inserting label plums
+adding item
+Preview generation complete
+Added item: Grobien-Christian-Worship-as-the-Root-of-Righteousness-and-Ethical-Formation.pdf
+adding item
+Preview generation complete
+Added item: Hamann bibliography.docx
+adding item
+Preview generation complete
+Added item: Hamann thoughts.docx
+adding item
+Preview generation complete
+Added item: How do we attack the lodges correctly J. P. Koehler.docx
+adding item
+Preview generation complete
+Added item: JoshuaGenigPhDThesis.pdf
+adding item
+Preview generation failed, dummy thumbnail created
+Added item: Koontz - Paul the Athlete.mp3
+adding item
+Preview generation complete
+Added item: kuhn-ssr-2nded.pdf
+adding item
+Preview generation complete
+Added item: Martin Luther On War against the Turks.pdf
+adding item
+Preview generation complete
+Added item: Memoirs of the Lutheran Liturgical Association.pdf
+Starting file system monitor
+serving home_path:  static_files/html/home.html
+serving static path css/bootstrap.min.css
+serving static path js/jstree/theme-default/style.min.css
+serving static path img/ddms.png
+serving static path js/jstree/theme-default/throbber.gif
+serving static path js/jstree/theme-default/32px.png
+serving home_path:  static_files/html/home.html
+First time database setup completed.
+inserting label apple
+inserting label banana
+inserting label orange
+inserting label peaches
+inserting label plums
+adding item
+Preview generation complete
+Added item: Hamann bibliography.docx
+adding item
+Preview generation complete
+Added item: Hamann thoughts.docx
+adding item
+Preview generation complete
+Added item: How do we attack the lodges correctly J. P. Koehler.docx
+adding item
+Preview generation failed, dummy thumbnail created
+Added item: Koontz - Paul the Athlete.mp3
+adding item
+Preview generation complete
+Added item: kuhn-ssr-2nded.pdf
+adding item
+Preview generation complete
+Added item: Martin Luther On War against the Turks.pdf
+adding item
+Preview generation complete
+Added item: Memoirs of the Lutheran Liturgical Association.pdf
+adding item
+Preview generation complete
+Added item: subfokder\Grobien-Christian-Worship-as-the-Root-of-Righteousness-and-Ethical-Formation.pdf
+adding item
+Preview generation complete
+Added item: subfokder\JoshuaGenigPhDThesis.pdf
+Starting file system monitor
+Update path of item: was: Hamann thoughts.docx, changed to Hamann thoughts d.docx
+Update path of item: was: Hamann bibliography.docx, changed to subfokder\Hamann bibliography.docx
+adding item
+Preview generation failed, dummy thumbnail created
+Added item: test.txt
+Starting file system monitor
+serving home_path:  static_files/html/home.html
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+Starting file system monitor
+monitoring
+queue not empty
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+queue not empty
+queue not empty
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+Update path of item: was: test.txt, changed to subfokder\test.txt
+Starting file system monitor
+monitoring
+gui
+monitoring
+monitoring
+monitoring
+filesystem-monitor
+filesystem-monitor
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+monitoring
+Update path of item: was: Hamann thoughts d.docx, changed to subfokder\Hamann thoughts d.docx
+Starting file system monitor
+Dequeued filesystem event: delete, src: How do we attack the lodges correctly J. P. Koehler.docx
+Dequeued filesystem event: add, src: subfokder\How do we attack the lodges correctly J. P. Koehler.docx
+popped from secondary queue: action: delete, src: How do we attack the lodges correctly J. P. Koehler.docx
+Deleted item, path was How do we attack the lodges correctly J. P. Koehler.docx
+popped from secondary queue: action: add, src: subfokder\How do we attack the lodges correctly J. P. Koehler.docx
+adding item
+Preview generation complete
+Added item: subfokder\How do we attack the lodges correctly J. P. Koehler.docx

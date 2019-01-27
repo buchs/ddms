@@ -533,7 +533,7 @@ def monitor_queue():
             time.sleep(0.1) # need to speed this up because the UI is waiting.
             while not QUEUE.empty():
                 queue_entry = QUEUE.get_nowait()
-                if queue_entry['type'] == 'filesystem_monitor':
+                if queue_entry['type'] == 'filesystem-monitor':
 
                     LOG.info("Dequeued filesystem event: %s, src: %s",
                              queue_entry['action'], queue_entry['src'])
