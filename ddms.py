@@ -25,6 +25,7 @@ import json
 import queue
 import random
 import logging
+import argparse
 import webbrowser
 
 # About making use of pathlib, instead of os.path and some others.
@@ -44,10 +45,12 @@ from preview_generator.manager import PreviewManager
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from sqlalchemy import create_engine, Table, Column, String, MetaData
-from sqlalchemy import select as sqlselect
+from sqlalchemy import select as sqlselect, text as sqltext
 from bottle import route as bottle_route, run as bottle_run,  \
-    static_file
+    static_file, request as bottle_request
 # could include:  template,, response as bottle_response
+# noinspection PyPep8,Pylint
+from bottle import debug as bottle_debug
 
 # Constants that may need to be changed
 # start at the root level, e.g. c:/Users/david/...
@@ -82,7 +85,6 @@ LOG.setLevel('INFO')
 LOG.addHandler(logging.FileHandler(SCRIPT_DIR.joinpath(LOG_FILE)))
 
 # noinspection PyPep8,Pylint
-from bottle import debug as bottle_debug
 bottle_debug(mode=True)
 
 
@@ -260,6 +262,7 @@ class BLPathTreeNode:
 
 
 # noinspection Pylint
+# pylint disable=too-few-public-methods
 class GlobalData:
     """
     Holds various global values, pointers to services and database information
@@ -279,9 +282,11 @@ class GlobalData:
         sys.stdout = tempfile
         try:
             self.preview = PreviewManager(THUMBNAIL_DIRECTORY, create_folder=True)
-        except:
+
+        # pylint bare-except
+        except Exception as exception_info:
             LOG.error('Exception in Preview Generator startup')
-            # LOG.error(str(e))
+            LOG.error(exception_info)
 
         sys.stdout.close()
         sys.stdout = save_stdout
@@ -326,13 +331,17 @@ class GlobalData:
         fruits = [f for f in DESIRED_FRUITS if f not in existing]
         insert = self.tb_labels.insert(None)
         for label in fruits:
-            LOG.info('inserting label %s', label)
             self.db_conn.execute(insert, label=label)
 
         # Other important data structures
         self.browse_list_object = None
         self.updates = False
         self.updates_browse_list = False
+
+    def nothing(self):
+        """Keeping pylint happy"""
+        pass
+
 
 def search_path(pathname):
     """search database according to pathname"""
@@ -390,13 +399,14 @@ def add_item(pathname, shahash=None):
     # generate jpeg thumbnail file and capture its path as string
     try:
         preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
+        thumb_path = str(Path(preview).relative_to(THUMBNAIL_DIRECTORY))
         LOG.info('Preview generation complete')
-    except Exception as e:
+    except Exception as except_info:
         ## handle unsupported mimetype exception -- create blank jpg file
-        preview = str(THUMBNAIL_DIRECTORY.joinpath(str(random.randrange(100000000,999999999)) + '.jpeg'))
+        preview = str(THUMBNAIL_DIRECTORY.joinpath(str(random.randrange(100000000, 999999999)) + '.jpeg'))
         open(preview, 'a').close()
         LOG.info('Preview generation failed, dummy thumbnail created')
-        
+
     # just for development - we will assign a random fruit label 50% of the time.
     random_int = random.randrange(2*len(DESIRED_FRUITS))
     if random_int < len(DESIRED_FRUITS):
@@ -406,7 +416,7 @@ def add_item(pathname, shahash=None):
 
     insert = GLOBAL_DATA.tb_items.insert(None)
     GLOBAL_DATA.db_conn.execute(insert, path=str_pathname, shahash=shahash,
-                                thumb=preview, labels=labels)
+                                thumb=thumb_path, labels=labels)
     LOG.info('Added item: %s', pathname)
 
 
@@ -431,9 +441,10 @@ def update_item_hash_thumb(pathname, shahash=None):
         thumbpath.unlink()
         # generate jpeg thumbnail
         preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
+        thumb_path = Path(preview).relative_to(THUMBNAIL_DIRECTORY)
         update = GLOBAL_DATA.tb_items.update(None) \
             .where(GLOBAL_DATA.tb_items.c.path == str_pathname) \
-            .values(shahash=shahash, thumb=preview)
+            .values(shahash=shahash, thumb=thumb_path)
         GLOBAL_DATA.db_conn.execute(update)
         LOG.info('Update hash/preview of item %s', str_pathname)
 
@@ -527,6 +538,38 @@ def monitor_queue():
     queue_delay = 15  # seconds
     time_counter = 0
 
+    def execute_queue_task_file(queue_entry):
+        LOG.info("Dequeued filesystem event: %s, src: %s",
+                 queue_entry['action'], queue_entry['src'])
+        # squash modified events right after create
+        if queue_entry['action'] == 'modified' \
+                and found_create(qlist, queue_entry):
+            pass  # squash
+        else:
+            queue_entry['timestamp'] = time.time() + queue_delay
+            qlist.append(queue_entry)  # add to second queue
+
+    def execute_queue_task_gui(queue_entry):
+        # run the provided query and return the results on the results queue
+        result = GLOBAL_DATA.db_conn.execute(queue_entry['select'])
+        RESULTSQ.put({'rows': result.fetchall()})
+        result.close()
+
+    def execute_queue_task_delayed():
+        queue_entry = qlist.pop(0)
+        action = queue_entry['action']
+        src = queue_entry['src']
+        LOG.info("popped from secondary queue: action: %s, src: %s", action, src)
+        if action == 'add':
+            add_item(Path(src))
+        if action == 'delete':
+            delete_item(Path(src))
+        if action == 'modified':
+            update_item_hash_thumb(Path(src))
+        if action == 'moved':
+            update_item_path(Path(src), Path(queue_entry['dest']))
+
+
     # pylint: disable=misplaced-comparison-constant
     try:
         while True:
@@ -534,42 +577,16 @@ def monitor_queue():
             while not QUEUE.empty():
                 queue_entry = QUEUE.get_nowait()
                 if queue_entry['type'] == 'filesystem-monitor':
-
-                    LOG.info("Dequeued filesystem event: %s, src: %s",
-                             queue_entry['action'], queue_entry['src'])
-                    # squash modified events right after create
-                    if 'modified' == queue_entry['action'] \
-                            and found_create(qlist, queue_entry):
-                        pass  # squash
-                    else:
-                        queue_entry['timestamp'] = time.time() + queue_delay
-                        qlist.append(queue_entry)  # add to second queue
-
+                    execute_queue_task_file(queue_entry)
                 elif queue_entry['type'] == 'gui':
-                    # run the provided query and return the results on the results queue
-                    result = GLOBAL_DATA.db_conn.execute(queue_entry['select'])
-                    RESULTSQ.put({'rows': result.fetchall()})
-                    result.close()
-
+                    execute_queue_task_gui(queue_entry)
                 QUEUE.task_done()
 
             # now process events from the secondary queue whose time is up,
             # but only do 1 each 1 second of loop iteration
             # in order to not consume too much time, impacting GUI
             if qlist and time.time() > qlist[0]['timestamp']:
-
-                queue_entry = qlist.pop(0)
-                action = queue_entry['action']
-                src = queue_entry['src']
-                LOG.info("popped from secondary queue: action: %s, src: %s", action, src)
-                if action == 'add':
-                    add_item(Path(src))
-                if action == 'delete':
-                    delete_item(Path(src))
-                if action == 'modified':
-                    update_item_hash_thumb(Path(src))
-                if action == 'moved':
-                    update_item_path(Path(src), Path(queue_entry['dest']))
+                execute_queue_task_delayed()
             # done, back to sleep
             time_counter += 1
             if time_counter > 9:
@@ -615,17 +632,167 @@ def initial_scan():
 # ----------------------------------------------------
 # Callbacks for Web GUI
 
-# ## Route for showing all the items in the items table
-# ## -- calls up the show_all.tpl template file
+@bottle_route('/search')
+def search_documents():
+    """ Bottle handler for our main searches.
 
-@bottle_route('/showall')
-def showall():
-    """bottle handler for api path showall"""
+    Expect input query string like /search?dirs=a,b,c*labels=x,y,z for directory
+    contents and /search?trees=a,b,c*labels=x,y,z for tree contents.
 
-    # sel = sqlselect([tb_items.c.path, tb_items.c.thumb, tb_items.c.labels])
-    # result = db_conn.execute(sel)
-    # return template('show_all', rows=result.fetchall())
-    return 'still under construction'
+    What do we need for output? We need html code that gives what is necessary
+    to load up the main page view. For input we get a list of dirs and a list
+     of labels. """
+
+    query_string_dict = bottle_request.query.dict
+    # if no dirs or trees in the query string, then mode should be dirs
+    dir_mode = True
+    if 'dirs' in query_string_dict or 'trees' in query_string_dict:
+        if 'dirs' in query_string_dict:
+            directories = query_string_dict['dirs']
+        else:
+            directories = query_string_dict['trees']
+            # add wildcard to each directory
+            dir_mode = False
+        if directories and len(directories) == 1 and directories[0] == '':
+            directories = []
+        LOG.info(f'directories = {directories}')
+
+    else:
+        directories = []
+
+    if 'labels' in query_string_dict:
+        labels = query_string_dict['labels']
+    else:
+        labels = []
+
+    log_msg = f'directories = "{directories}", mode = "{dir_mode}", labels = "{labels}"'
+    LOG.info(log_msg)
+
+    textual_sql = ["SELECT path, thumb, labels FROM items "]
+    if not directories:
+        if not labels:
+            LOG.info('no dirs, no label, dir_mode: %s', dir_mode)
+            # just do the top level unless in tree mode
+            if dir_mode:
+                textual_sql.append("WHERE path NOT LIKE '%/%' ")
+        else:
+            textual_sql.append("WHERE ( ")
+            firsttime = True
+            for l in labels:
+                if firsttime:
+                    firsttime = False
+                    conn_str = ""
+                else:
+                    conn_str = " OR "
+                textual_sql.append(conn_str + f"labels LIKE '%{l}%' ")
+            textual_sql.append(")")
+
+    else: # we have directory pieces
+        if not labels:
+            # have dirs without labels
+            firsttime = True
+            textual_sql.append("WHERE (")
+            for d in directories:
+                if dir_mode:
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(f"OR (path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                else: # tree mode - want all subdirs
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{d}/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(" OR (path LIKE '{d}/%')")
+            textual_sql.append(")")
+
+        else:   # both labels and dirs
+            textual_sql.append("WHERE ( (")
+            firsttime = True
+            for l in labels:
+                if firsttime:
+                    firsttime = False
+                    conn_str = ""
+                else:
+                    conn_str = " OR "
+                textual_sql.append(conn_str + f"labels LIKE '%{l}%' ")
+
+            textual_sql.append(") AND (")
+
+            firsttime = True
+            for d in directories:
+                if dir_mode:
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(f"OR (path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                else: # tree mode - want all subdirs
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{d}/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(" OR (path LIKE '{d}/%')")
+            textual_sql.append(") )")
+
+    LOG.info('textual_sql:')
+    LOG.info(repr(textual_sql))
+
+    sqlcommand = None
+    try:
+        sqlcommand = sqltext(''.join(textual_sql))
+    except TypeError as exc:
+        msg = '<h2>Error creating SQL query</h2>'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        LOG.error(msg)
+        return msg
+    except Exception as exc:
+        msg = '<h2>Error creating SQL query</h2>'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        LOG.error(msg)
+        return msg
+
+    queue_entry = {"rows": []}
+    try:
+        # Ok, we are in the wrong thread to run a SQL query - so use the queues to get
+        # the request to the right thread. Results are
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.02)
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+        # more processing below
+
+    except Exception as exc:
+        msg = 'Error executing SQL query'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        msg += '<h4>Result</h4>'
+        msg += '<pre>' + str(queue_entry['rows']) + '</pre>'
+        LOG.error(msg)
+        return msg
+
+    result_string = '<h2>Search Results:</h2>\n'
+    for row in queue_entry['rows']:
+        path = row[0]
+        thumbnail = f'thumbnails/{row[1]}'
+        labels = row[2]
+        item_entry = f"""
+          <table><tr><td width="200px"><img src="{thumbnail}"><td><b>{path}</b> 
+            &nbsp;  &nbsp; <i>Labels: {labels}</i></tr></table><br>
+        """
+        result_string += item_entry
+
+
+    LOG.info('Query Results:')
+    for row in queue_entry['rows']:
+        tstr = f'{row[0]}, {row[1]}, {row[2]}'
+        LOG.info(tstr)
+
+    return result_string
 
 
 @bottle_route('/static_files/<path:path>')
@@ -640,9 +807,25 @@ def serve_static(path):
     try:
         LOG.info('serving static path %s', path)
         return static_file('static_files/'+path, root=str(SCRIPT_DIR))
-    except:
-        LOG.info('Exception in static_file(): ')
+    except Exception as exception_info:
+        LOG.info('Exception in serving static_file(): ')
         LOG.info(sys.exc_info())
+        LOG.info(exception_info)
+        return "error"
+
+
+@bottle_route('/thumbnails/<path:path>')
+def serve_thumb(path):
+    """
+    General service of thumbnail image file paths
+    """
+    try:
+        LOG.info('serving thumbnail %s', path)
+        return static_file(path, root=str(THUMBNAIL_DIRECTORY))
+    except Exception as exception_info:
+        LOG.info('Exception in serving static_file(): ')
+        LOG.info(sys.exc_info())
+        LOG.info(exception_info)
         return "error"
 
 
@@ -655,6 +838,13 @@ def handle_home_path():
     return static_file(path, root=str(SCRIPT_DIR))
 
 
+@bottle_route('/favicon.ico')
+def favicon():
+    path = 'static_files/img/favicon.png'
+    return static_file(path, root=str(SCRIPT_DIR))
+
+
+# pylint: disable-too-many-nested-blocks
 @bottle_route('/browselist')
 def browse_list():
     "return JSON data on the file/directory structure"
@@ -826,9 +1016,14 @@ def main():
 
 
 if __name__ == "__main__":
-    # for testing only, clear the board before we run if True
-    WIPE_EXISTING = True
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--clear', dest='clear', action='store_true',
+                        help='wipe any existing data and recreate')
+    args = parser.parse_args()
+    WIPE_EXISTING = args.clear  # False/True for testing only, clear the board before we run if True
     if WIPE_EXISTING:
+        print('clearing data to start fresh')
         if DATABASE_PATH.exists():
             DATABASE_PATH.unlink()
         rmtree(THUMBNAIL_DIRECTORY)

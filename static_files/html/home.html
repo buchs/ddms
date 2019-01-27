@@ -48,10 +48,9 @@
         min-height: 600px;
       }
 
-	 .demo { overflow:auto; border:1px solid silver; min-height:100px; }
-
     </style>
 
+    <link rel="icon" type="image/png" href="/static_files/img/favicon.png">
     <title>DDMS</title>
 </head>
 <body>
@@ -89,7 +88,7 @@
                 <li class="my-0">
                   <span class="my-0">
                       <span class="form-check-inline autoc">
-                          <label class="my-auto" for="selectedDirs" class=""> &nbsp; &nbsp; &nbsp; Dirs:</label>
+                          <label class="my-auto" for="selectedDirs"> &nbsp; &nbsp; &nbsp; Dirs:</label>
                           <input type="text" class="form-control-sm p-0 my-0" id="selectedDirs" placeholder="empty">
                       </span>
                   </span>
@@ -104,6 +103,16 @@
                       </span>
                   </span>
                 </li>
+                <li class="my-0">
+                  <button
+                    id="go"
+                    class="nav-button p-0 btn-sm btn-primary"
+                    onclick="do_main_search()">
+                      Go
+                  </button>
+                </li>
+
+
               </ul>
             </form>
         </nav>
@@ -119,65 +128,80 @@
                             &times;</button>
                      </div>
                      <div class="modal-body">
-                         <div id="browselist" class="demo"></div>
+                         <div id="browselist" class="browse_list_class"></div>
                      </div>
                  </div>
              </div>
          </div>
 
-        <h4>Assignments for David</h4>
-        <ol>
-            <li>Look at the browse list. You can use Control-Click or Shift-Click to select multiple entries.
-                It doesn't really support file selection (i.e. I don't think there is not a need to choose
-                just a file for the search to run against). If you select a file, it just takes the
-                directory containing it. I thought, however, that listing the files could be helpful in
-                choosing a directory. However, I could just omit the files from the browse list. What do
-                you want?</li>
-            <li>The browse list should be fully functional. When you select one or more items, they should
-                appear, comma-delimited, in the "Dirs" field. You can also type into that field. Right now,
-                when you pop up the browse list, the assumption is that whatever you had in the Dirs field
-                is going to be overwritten. It could be made more intelligent, with the browse list
-                opening with the items from the Dirs field preselected. Thus the browse list could be used
-                additively to add directories to the ones already present.</li>
-            <li>Do you want the labels to be case sensitive? Could convert all to lower case. e.g.</li>
-            <li>The labels field (uppper right of UI) should be tested. I defined 5 labels with fruit
-                names (apple, etc.) just for playing with. Check out the completion of labels. See how
-                completion works when you have multiple, comma-delimited labels.</li>
-        </ol>
-        <h4>Notes on the GUI</h4>
-        <p>What does the UI look like? Kinds of things it should show:
-        <ol>
-            <li>) a browseable listing of the whole directory tree, just text
-            <li>) a display of the results of a search. Search can be from a combination of 0 or more labels and
-                directory path or
-                directory tree. This result will have the previews inserted into it.
-            <li>) a click on a file item from the browsable tree or from the search results should either open the file
-                in a new
-                browser tab or an external tool.
-        </ol>
+        <!-- The contents of the main_section will be blown away when we have run a search -->
+        <div id="main_section">
+            <h4>Assignments for David</h4>
+            <ol>
+                <li>Look at the browse list. You can use Control-Click or Shift-Click to select multiple entries.
+                    It doesn't really support file selection (i.e. I don't think there is not a need to choose
+                    just a file for the search to run against). If you select a file, it just takes the
+                    directory containing it. I thought, however, that listing the files could be helpful in
+                    choosing a directory. However, I could just omit the files from the browse list. What do
+                    you want?</li>
+                <li>You need to decide how you would like an item from the search results opened, when double
+                    clicked. I can use the applications you would like and try to run those for documents like
+                    Word or LibreOffice. I can open text files, images, etc. in the browser, if you want or
+                    otherwise. Tell me how you want that to work. You can add the paths for the executables
+                    to run. Add in as a constant at the top of ddms.py. You could try to stay in the browser
+                    or stay away from the browser. I can open in new tabs in the browser.</li>
+                <li>The browse list should be fully functional. When you select one or more items, they should
+                    appear, comma-delimited, in the "Dirs" field. You can also type into that field. Right now,
+                    when you pop up the browse list, the assumption is that whatever you had in the Dirs field
+                    is going to be overwritten. It could be made more intelligent, with the browse list
+                    opening with the items from the Dirs field preselected. Thus the browse list could be used
+                    additively to add directories to the ones already present.</li>
+                <li>Do you want the labels to be case sensitive? Could convert all to lower case. e.g.</li>
+                <li>The labels field (uppper right of UI) should be tested. I defined 5 labels with fruit
+                    names (apple, etc.) just for playing with. Check out the completion of labels. See how
+                    completion works when you have multiple, comma-delimited labels.</li>
+                <li>Search is now operational. Start with nothing in the Dirs or Labels boxes and press the
+                    "Go" button on the top right. You should get back a listing of just the top level
+                    directory. Next, click the Dir/Tree region to toggle to Tree mode. The same search should
+                    dump the whole thing (maybe not, if you have a lot). Use the Browse List to add one or more
+                    directories in the Dirs box. I randomly assigned labels for half of the items and these
+                    labels are fruit. These might not be working correctly. Your testing is appreciated. </li>
+            </ol>
+            <h4>Notes on the GUI</h4>
+            <p>What does the UI look like? Kinds of things it should show:
+            <ol>
+                <li>) a browseable listing of the whole directory tree, just text
+                <li>) a display of the results of a search. Search can be from a combination of 0 or more labels and
+                    directory path or
+                    directory tree. This result will have the previews inserted into it.
+                <li>) a click on a file item from the browsable tree or from the search results should either open the file
+                    in a new
+                    browser tab or an external tool.
+            </ol>
 
-        So, the browseable tree can be a transient GUI feature, click a button and the tree is shown. Make a selection
-        from
-        the tree and it goes away. Also needs a closer. Each item is a hyperlink. File hyperlinks open the file,
-        but directory hyperlinks do a search on that directory.
+            So, the browseable tree can be a transient GUI feature, click a button and the tree is shown. Make a selection
+            from
+            the tree and it goes away. Also needs a closer. Each item is a hyperlink. File hyperlinks open the file,
+            but directory hyperlinks do a search on that directory.
 
-        <pre>Up top: [Browse List]   Search Parameters: dir / tree, directory: [txt box]  labels: [txt box]  [run search]</pre>
+            <pre>Up top: [Browse List]   Search Parameters: dir / tree, directory: [txt box]  labels: [txt box]  [run search]</pre>
 
-        Text boxes show the current items. May be populated from a browseable selection or typed into the box, with
-        completion.
-        With the labels box: you can type with completion for a comma delimited list or pull up a list (with current
-        labels already selected.
+            Text boxes show the current items. May be populated from a browseable selection or typed into the box, with
+            completion.
+            With the labels box: you can type with completion for a comma delimited list or pull up a list (with current
+            labels already selected.
 
-        Also need an add label pop-up. Choice to lable selected or all items. Maybe we select from a little checkbox by
-        each
-        item. Do selection before accessing the label pop-up.
+            Also need an add label pop-up. Choice to lable selected or all items. Maybe we select from a little checkbox by
+            each
+            item. Do selection before accessing the label pop-up.
 
-        <h4>Open questions</h4>
-        1) show should filesystem monitor communicate to the web server changes that are noticed?
-        <br>2) how should the web GUI indicate changes?
-        <br>and more
+            <h4>Open questions</h4>
+            1) show should filesystem monitor communicate to the web server changes that are noticed?
+            <br>2) how should the web GUI indicate changes?
+            <br>and more
 
-        <hr>
+            <hr>
+        </div>
     </div>
 
      <script src="/static_files/js/jquery-3.3.1.js"></script>
@@ -189,22 +213,22 @@
      <script type="text/javascript">
 
         const root_node_name = '{root}';
-        var tree_dir_state = 'dir';
+        var tree_dir_state = 'dirs';
 
-        /*--------------- For Tree/Dir Indicator -----------------*/
+        //--------------- For Tree/Dir Indicator -----------------
 
         function toggle_tree_dir() {
             var toggle_tree = jQuery('#toggle-tree');
             var toggle_dir  = jQuery('#toggle-dir');
 
-            if (tree_dir_state == 'dir') {
-                tree_dir_state = 'tree';
+            if (tree_dir_state == 'dirs') {
+                tree_dir_state = 'trees';
                 toggle_tree.removeClass('toggle-red');
                 toggle_tree.addClass('toggle-green');
                 toggle_dir.removeClass('toggle-green');
                 toggle_dir.addClass('toggle-red');
             } else {
-                tree_dir_state = 'dir';
+                tree_dir_state = 'dirs';
                 toggle_tree.removeClass('toggle-green');
                 toggle_tree.addClass('toggle-red');
                 toggle_dir.removeClass('toggle-red');
@@ -213,7 +237,7 @@
         }
 
 
-        /*--------------- For Browse List -----------------*/
+        // --------------- For Browse List -----------------
 
         function browseListChanges(first, second) {
             let jst = jQuery('#browselist').jstree();
@@ -252,7 +276,7 @@
         // we are about editing the labels.
         function refresh_labels_cb(data) {
             labels = JSON.parse(data);
-            console.log('labels: ' + labels);
+            // console.log('labels: ' + labels);
         }
 
         function refresh_labels() {
@@ -286,6 +310,39 @@
         jQuery( function register() {
             selected_labels.autocomplete({ source: custom_matcher});
         });
+
+
+        // ---------- For main search ------------------------------
+
+        function search_callback(data) {
+            console.log('search raw data: '+data);
+            jQuery('#main_section').replaceWith(data);
+        };
+
+        function do_main_search() {
+            var labels = jQuery('#selectedLabels').val();
+            console.log('labels: "' + labels + '"');
+            var dirs = jQuery('#selectedDirs').val();
+            if (labels === '')  labels = undefined;
+            if (dirs === '') dirs = undefined;
+            console.log('dirs: "' + dirs + '"');
+            var uri_string = '/search';
+            var sep = '?';
+            if (dirs !== undefined) {
+                uri_string += sep + tree_dir_state + '=' + dirs;
+                sep = '&';
+            } else {
+                uri_string += sep + tree_dir_state + '=';
+                sep = '&';
+            }
+            if (labels != undefined) {
+                uri_string += sep + 'labels=' + labels;
+            }
+            const url = encodeURI(uri_string);
+            console.log('Url: ' + url);
+            jQuery.get(url, {}, search_callback);
+        }
+
 
         /* ---------- Notes for reference --------------------------
           modifying element class
