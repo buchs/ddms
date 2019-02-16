@@ -2,16 +2,12 @@
 <!--suppress ALL -->
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-    <!--suppress SpellCheckingInspection -->
-    <link rel="stylesheet" href="/static_files/css/bootstrap.min.css"
-    />
-   	<link rel="stylesheet" href="/static_files/js/jstree/theme-default/style.min.css" />
-    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css" />
-
+    <link rel="stylesheet" href="static_files/css/bootstrap.min.css" />
+   	<link rel="stylesheet" href="static_files/js/jstree/theme-default/style.min.css" />
+    <link rel="stylesheet" href="static_files/css/jquery-ui.min.css" />
 
     <style>
       @page {
@@ -29,23 +25,32 @@
         font-weight: normal;
       }
 
-      #home-section {
-        background: url(img/large-client.jpg);
-        background-repeat: no-repeat;
-        background-size: cover;
-        background-attachment: fixed;
-        width: 100%;
-        height: auto;
-        min-height: 600px;
+      .label-removal {
+        background-image: url('/static_files/img/label-removal.png');
       }
-      #home-section .dark-overlay {
-        /* position: absolute; */
-        background: rgba(0, 0, 0, 0.6);
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: auto;
-        min-height: 600px;
+
+      .bigpath {
+        font-size: 20px;
+      }
+
+      .compact-button {
+        line-height: 97%;
+      }
+
+      .addlabel-input {
+           /* z-index: 1000; */
+      }
+
+      .addlabel-dialog {
+           /* z-index: 1000; */
+      }
+
+      #modalIns{
+           width: 500px;
+      }
+
+      .ui-autocomplete {
+          z-index: 1100
       }
 
     </style>
@@ -54,20 +59,20 @@
     <title>DDMS</title>
 </head>
 <body>
-
-    <div class="mx-1">
+   <div class="mx-1">
       <header>
 
         <nav class="navbar navbar-expand-sm navbar-light bg-light p-1">
               <ul class="navbar-nav mr-auto">
 
-                <li class="my-0 mr-5">
+                <li class="my-0 p-0 mr-5">
                   <img src="/static_files/img/ddms.png" height="20"/>
                 </li>
+
                 <li class="my-0">
                   <button
                     id="browse-list"
-                    class="nav-button p-0 btn-sm btn-primary"
+                    class="nav-button p-0 btn-sm btn-primary compact-button"
                     onclick="showBrowseList()"
                     data-toggle="modal"
                     data-target="#browse_list_modal"
@@ -99,20 +104,19 @@
                       <span class="form-check-inline">
                           <label class="my-auto" for="selectedLabels" class=""> &nbsp; &nbsp; &nbsp; Labels:</label>
                           <input type="text" class="form-control-sm p-0 my-0"
-                                 id="selectedLabels" placeholder="NO labels selected">
+                                 id="selectedLabels" placeholder="empty">
                       </span>
                   </span>
                 </li>
+
                 <li class="my-0">
                   <button
                     id="go"
-                    class="nav-button p-0 btn-sm btn-primary"
+                    class="nav-button p-0 btn-sm btn-primary compact-button"
                     onclick="do_main_search()">
                       Go
                   </button>
                 </li>
-
-
               </ul>
             </form>
         </nav>
@@ -134,16 +138,45 @@
              </div>
          </div>
 
+
+        <div class="modal addlabel-dialog" id="add_label_modal" role="dialog">
+             <div class="modal-dialog" role="document">
+                 <div class="modal-content">
+                     <div class="modal-header">
+                         <h3 class="modal-title">Add A Label</h3>
+                         <button type="button" class="close btn button-sm btn-danger ml-auto mr-0 my-0 p-0" data-dismiss="modal">
+                            &times;</button>
+                     </div>
+                     <div class="modal-body">
+                         <div id="add_label_dialog" class="add_label_class form-check-inline">
+                             <span class="my-10">
+                                 <span class="form-check-inline">
+                                     <!-- input type="text" class="form-control addlabel-input" autofocus -->
+                                     <input type="text" class="form-control addlabel-input"
+                                         id="add_a_label_input" placeholder="enter label here" tabindex="1"/>
+                                 </span>
+                             </span>
+                         </div>
+                         <div>
+                             <button type="button" class="btn btn-primary ml-0 mr-auto my-5" onclick="finish_add_a_label()">
+                                 Add it
+                             </button>
+                             <button type="button" class="btn btn-secondary ml=auto my-5" onclick="cancel_add_a_label()">
+                                 Cancel
+                             </button>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+         </div>
+
+
+
+
         <!-- The contents of the main_section will be blown away when we have run a search -->
         <div id="main_section">
             <h4>Assignments for David</h4>
             <ol>
-                <li>Look at the browse list. You can use Control-Click or Shift-Click to select multiple entries.
-                    It doesn't really support file selection (i.e. I don't think there is not a need to choose
-                    just a file for the search to run against). If you select a file, it just takes the
-                    directory containing it. I thought, however, that listing the files could be helpful in
-                    choosing a directory. However, I could just omit the files from the browse list. What do
-                    you want?</li>
                 <li>You need to decide how you would like an item from the search results opened, when double
                     clicked. I can use the applications you would like and try to run those for documents like
                     Word or LibreOffice. I can open text files, images, etc. in the browser, if you want or
@@ -156,10 +189,6 @@
                     is going to be overwritten. It could be made more intelligent, with the browse list
                     opening with the items from the Dirs field preselected. Thus the browse list could be used
                     additively to add directories to the ones already present.</li>
-                <li>Do you want the labels to be case sensitive? Could convert all to lower case. e.g.</li>
-                <li>The labels field (uppper right of UI) should be tested. I defined 5 labels with fruit
-                    names (apple, etc.) just for playing with. Check out the completion of labels. See how
-                    completion works when you have multiple, comma-delimited labels.</li>
                 <li>Search is now operational. Start with nothing in the Dirs or Labels boxes and press the
                     "Go" button on the top right. You should get back a listing of just the top level
                     directory. Next, click the Dir/Tree region to toggle to Tree mode. The same search should
@@ -171,35 +200,23 @@
             <p>What does the UI look like? Kinds of things it should show:
             <ol>
                 <li>) a browseable listing of the whole directory tree, just text
-                <li>) a display of the results of a search. Search can be from a combination of 0 or more labels and
-                    directory path or
-                    directory tree. This result will have the previews inserted into it.
-                <li>) a click on a file item from the browsable tree or from the search results should either open the file
-                    in a new
-                    browser tab or an external tool.
+                <li>) a display of the results of a search. Search can be from a combination of 0
+                    or more labels and directory path or directory tree. This result will have
+                    the previews inserted into it.
+                <li>) a click on a file item from the browsable tree or from the search results
+                    should either open the file in a new browser tab or an external tool.
+                <li>Text boxes show the current items. May be populated from a browseable
+                    selection or typed into the box, with completion. With the labels box: you
+                    can type with completion for a comma delimited list or pull up a list (with
+                    current labels already selected. Also need an add label pop-up. Choice to label
+                    selected or all items. Maybe we select from a little checkbox by each item.
+                    Do selection before accessing the label pop-up.
             </ol>
 
-            So, the browseable tree can be a transient GUI feature, click a button and the tree is shown. Make a selection
-            from
-            the tree and it goes away. Also needs a closer. Each item is a hyperlink. File hyperlinks open the file,
-            but directory hyperlinks do a search on that directory.
-
-            <pre>Up top: [Browse List]   Search Parameters: dir / tree, directory: [txt box]  labels: [txt box]  [run search]</pre>
-
-            Text boxes show the current items. May be populated from a browseable selection or typed into the box, with
-            completion.
-            With the labels box: you can type with completion for a comma delimited list or pull up a list (with current
-            labels already selected.
-
-            Also need an add label pop-up. Choice to lable selected or all items. Maybe we select from a little checkbox by
-            each
-            item. Do selection before accessing the label pop-up.
 
             <h4>Open questions</h4>
-            1) show should filesystem monitor communicate to the web server changes that are noticed?
-            <br>2) how should the web GUI indicate changes?
-            <br>and more
-
+            <ol><li>show should filesystem monitor communicate to the web server changes that are noticed?
+                <li>how should the web GUI indicate changes?</li></ol>
             <hr>
         </div>
     </div>
@@ -259,7 +276,6 @@
             let tree_struct = JSON.parse(data);
             tree_struct.plugins = ["changed", "wholerow"];
             let component = jQuery('#browselist');
-            // component.on("changed.jstree", browseListChanges);
             component.on('select_node.jstree', browseListChanges);
             component.on('deselect_node.jstree', browseListChanges);
             component.jstree(tree_struct);
@@ -269,19 +285,19 @@
             jQuery.get('/browselist', {}, showbl_callback);
         }
 
-        // -------------- Handling labels field -----------------------------------
+        // -------------- Handling navbar labels field -----------------------------------
 
         // We need to have an up-to-date list of labels from the database.
         // Start with copy here (at loading) and then update it whenever
         // we are about editing the labels.
         function refresh_labels_cb(data) {
             labels = JSON.parse(data);
-            // console.log('labels: ' + labels);
         }
 
         function refresh_labels() {
             jQuery.get('/labels', {}, refresh_labels_cb);
         }
+
         refresh_labels();  // do it now
 
         function custom_matcher(request, response) {
@@ -304,7 +320,6 @@
         };
 
         // Register a click listener
-        // const labels = ['apple','orange','banana','pear'];
         const selected_labels = jQuery('#selectedLabels');
 
         jQuery( function register() {
@@ -312,20 +327,21 @@
         });
 
 
+
         // ---------- For main search ------------------------------
 
         function search_callback(data) {
-            console.log('search raw data: '+data);
-            jQuery('#main_section').replaceWith(data);
+            console.log('search results:\n'+data);
+            var main = jQuery('#main_section')
+            main.empty()
+            main.append(data);
         };
 
         function do_main_search() {
-            var labels = jQuery('#selectedLabels').val();
-            console.log('labels: "' + labels + '"');
+            var labels = jQuery('#selectedLabels').val().toLowerCase();
             var dirs = jQuery('#selectedDirs').val();
             if (labels === '')  labels = undefined;
             if (dirs === '') dirs = undefined;
-            console.log('dirs: "' + dirs + '"');
             var uri_string = '/search';
             var sep = '?';
             if (dirs !== undefined) {
@@ -339,10 +355,86 @@
                 uri_string += sep + 'labels=' + labels;
             }
             const url = encodeURI(uri_string);
-            console.log('Url: ' + url);
+            // console.log('Url: ' + url);
             jQuery.get(url, {}, search_callback);
+            console.log('get '+url+' issued.');
         }
 
+
+        // ---------- For adding/removing labels from items --------
+
+        var active_item_id;  // keeps track of what we are working on
+        const add_labels_modal = jQuery('#add_label_modal');
+
+        // Set up autocomplete for the add label modal dialog for adding labels to items
+        const add_a_label_input = jQuery('#add_a_label_input');
+
+        jQuery( function register2() {
+            add_a_label_input.autocomplete({ source: custom_matcher});
+        });
+
+        // setup focus on modal shown
+        add_labels_modal.on('shown.bs.modal', function() {
+            add_a_label_input.focus();
+        } );
+
+        // handle pressing enter in add label input
+        $('#add_a_label_input').keyup( function(event) {
+            if (event.keyCode === 13) finish_add_a_label(); } );
+
+        function start_add_a_label(item_id) {
+            if (item_id.slice(0,7) != 'search-') {
+                alert(`problem here with item_id of ${item_id}`);
+            } else {
+                active_item_id = item_id.slice(7, item_id.length);
+                // add_a_label_input[0].focus();
+                // docoument.getElementById("add_a_label_input").focus();
+                // add_a_label_input.setCursorPosition = 0;
+            }
+        }
+
+        function finish_add_a_label() {
+            add_labels_modal.modal('toggle');
+            const newlabels = add_a_label_input[0].value.toLowerCase();
+            add_a_label_input[0].value = '';  // clear it for next time
+            jQuery.get('/add_label?item_id=' + active_item_id + ';labels=' + newlabels);
+            // add to search results
+            const labels_span_id = `#labels-for-${active_item_id}`;
+            const labels_span = $(labels_span_id);
+            var prefix = '';
+            // determine if there are existing labels
+            console.log(`labels_span children length = ${labels_span.children().length}`);
+            if (labels_span.children().length > 0) prefix = ', ';
+            var label_key;
+            var labels_str = ''; // build this incrementally for each label
+            newlabels.split(',').forEach(function(label) {
+                label_key = `search-${active_item_id}-${label}`;
+                labels_str += `<span id="${label_key}">${prefix}${label}<span class="ml-1">`
+                              + '<img src="/static_files/img/x-button.png" width="16px" '
+                              + "onclick=\"remove_a_label('" + label_key + "')\"></span></span>";
+                prefix = ', ';  // subsequently, separate with comma + space
+            });
+
+            // labes_str = labels_str.replace(/</g, '\<').replace(/>/g, '\>')
+
+            // insert the new html into the page before the Add button
+            labels_span.append(labels_str);
+        }
+
+        function cancel_add_a_label() {
+            add_labels_modal.modal('toggle');
+            add_a_label_input.value = '';
+        }
+
+        function remove_a_label(labelId) {
+            // remove from GUI
+            var idselector = "#" + labelId;
+            // TODO: removing the comma-space from the next label if just delete the first one.
+            $(idselector).remove();
+            // remove from database
+            jQuery.get('/remove_label?id=' + labelId);
+            refresh_labels();
+        }
 
         /* ---------- Notes for reference --------------------------
           modifying element class

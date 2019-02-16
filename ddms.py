@@ -16,8 +16,8 @@ being added. Then, when the output stops and you see the file system monitor is
 running, you can do additional tests to add a file, delete a file, change a file's
 contents (just have a text file you edit), move file from one directory to
 another, and rename a file keeping it in the same directory.
-
 """
+
 import os
 import sys
 import time
@@ -26,6 +26,7 @@ import queue
 import random
 import logging
 import argparse
+import threading
 import webbrowser
 
 # About making use of pathlib, instead of os.path and some others.
@@ -37,7 +38,6 @@ from pathlib import Path
 
 from hashlib import sha512  # get sha 512 bit hash with sha512(string)
 from shutil import rmtree
-from threading import Thread
 from tempfile import TemporaryFile
 
 # needed setup: pip3.6 install preview_generator, watchdog and sqlalchemy
@@ -74,10 +74,11 @@ EXCLUDE_EXTENSIONS = ['sqlite']
 IGNORED_DIRECTORIES = [Path('.thumbnails')]
 
 NETWORK_PORT = 8080
+BROWSE_LIST_INCLUDE_FILES = False
 
 # THINGS CONFIGURED TO SUPPORT DEVELOPMENT
 DESIRED_FRUITS = ['apple', 'banana', 'orange', 'peaches', 'plums']
-LOG_FILE = 'ddms.log' # just file name
+LOG_FILE = 'ddms.log'  # just file name
 LOGGING_FORMAT = '%(asctime)-15s  %(message)s'
 logging.basicConfig(format=LOGGING_FORMAT)
 LOG = logging.getLogger('DDMS')
@@ -196,9 +197,11 @@ class DDMSFilesystemEventHandler(FileSystemEventHandler):
 
 
 class BLPathTreeNode:
-    """object is the node in directory tree for browse list"""
-    def __init__(self, path, parent=None):
+    """For a nodee of the browse list tree. object is the node in directory tree for browse list"""
+
+    def __init__(self, path, node_type, parent=None):
         self.path = path
+        self.type = node_type # 'file' or 'dir'
         self.parent = parent
         self.children = []
 
@@ -207,8 +210,12 @@ class BLPathTreeNode:
         grandchildren"""
         output = ''
         for child in self.children:
-            output += repr(child)
-            output += ', '
+            part_output = repr(child)
+            if not (not BROWSE_LIST_INCLUDE_FILES and part_output == ''):
+                output += part_output + ', '
+            else:
+                print('skipped file: ', child.path)
+            # else: this is a file and we are not including those
         # omit the final comma and space
         return output[0:-2]
 
@@ -216,14 +223,20 @@ class BLPathTreeNode:
         """
         Override this function so we can output a JSON string representation via repr(obj)
         """
-        output = f'{{"text": "{self.path}", '
         if self.repr_children():   # i.e. are there children, if no, this is a file node
+            output = f'{{"text": "{self.path}", '
             output += '"children": ['
             output += self.repr_children()
             output += ']}'
-        else:
+            return output
+
+        if BROWSE_LIST_INCLUDE_FILES:
+            output = f'{{"text": "{self.path}", '
             output += '"icon": "jstree-file"}'
-        return output
+            return output
+
+        return ''
+
 
     def add_child(self, path):
         """Add a new child on browse list tree"""
@@ -261,15 +274,91 @@ class BLPathTreeNode:
         return cp_node
 
 
-# noinspection Pylint
-# pylint disable=too-few-public-methods
+def bl_output_directories_structure():
+    """
+    Used to output json structure for browse list from just a list of directories instead of the
+    above tree.
+    """
+
+    def closeout(levels):
+        """Close out levels of hierarchy"""
+        return ' ]} ' * levels
+
+    output_string = ''
+    parents_stack = list()
+
+    for dire in GLOBAL_DATA.browse_list_object:
+        path = Path(dire)
+        path_parts = list(path.parts)
+        path_len = len(path_parts)
+        # after initial output, we need to separate each item with a comma.
+        # if output_string:  # when output_str != ''
+            # more logic goes here..:
+            # output_string += ',' # insert comma at the beginning of each line
+
+        if parents_stack:
+            parents_len = len(parents_stack)
+            matchthru = -1
+            for idx in range(min(parents_len, path_len)):
+                if parents_stack[idx] == path_parts[idx]:
+                    matchthru = idx
+                else:
+                    break
+            if matchthru == -1:
+                output_string += closeout(parents_len)
+                output_string += ', '
+                del parents_stack[0:]  # empty list and then start from the top which
+
+            elif matchthru < len(parents_stack) - 1:
+                # have a partial match - closeout parent to that extent and then add
+                output_string += closeout(parents_len - matchthru)
+                output_string += ', '
+                extend_parents = matchthru + 1
+                for pcounter in path_parts[extend_parents:]:
+                    output_string += f'{{"text": "{pcounter}", "children": ['
+                    parents_stack[extend_parents] = pcounter
+                    extend_parents += 1
+
+            elif matchthru == parents_len - 1:
+                # full match, so we just add children
+                index = extend_parents = matchthru + 1
+                for pcounter in path_parts[extend_parents:]:
+                    output_string += f'{{"text": "{pcounter}", "children": ['
+                    # print(f'len of parents_statck = {len(parents_stack)}, \
+                    #   add entry via index {index}')
+                    parents_stack.append(pcounter)
+                    index += 1
+
+            else:
+                print("ERROR: should not happen #1")
+
+        # either first starting out or have returned to the top level (just above)
+        if not parents_stack:
+            for pcounter in path_parts:
+                output_string += f'{{"text": "{pcounter}", "children": ['
+            parents_stack = path_parts
+
+        # print(f'loop, os={output_string}')
+
+
+    output_string += closeout(len(parents_stack))
+    return output_string
+
+    # desired format:
+    #  {"text": "Dir.2",
+    #    "children": [
+    #       {"text": "Dir.3"},
+    #       {"text": "Dir.4"}
+    #    ]
+    #  }
+
+
 class GlobalData:
     """
     Holds various global values, pointers to services and database information
     for handy reference.
     """
-    # pylint: disable=too-many-instance-attributes
-    # I have what I need to have for this class. leave me alone.
+    # py lint: disable=too-many-instance-attributes
     def __init__(self):
         """initialize this class"""
 
@@ -301,6 +390,7 @@ class GlobalData:
         self.db_conn = self.db_engine.connect()
         metadata = MetaData()
         self.tb_items = Table('items', metadata,
+                              Column('dir', String, index=True),
                               Column('path', String, primary_key=True, index=True),
                               Column('shahash', String, index=True),
                               Column('thumb', String),
@@ -322,25 +412,25 @@ class GlobalData:
                 self.all_paths.add(Path(row[0]))
 
         # fill lablels with fruits for dev testing, unless they already exist
-        sel = sqlselect([self.tb_labels.c.label, ]).order_by('label')
-        result = self.db_conn.execute(sel)
-        rows = result.fetchall()
-        result.close()
-        existing = [str(r[0]) for r in rows]
-        # which of desired_fruits is not already in table?
-        fruits = [f for f in DESIRED_FRUITS if f not in existing]
-        insert = self.tb_labels.insert(None)
-        for label in fruits:
-            self.db_conn.execute(insert, label=label)
+        # sel = sqlselect([self.tb_labels.c.label, ]).order_by('label')
+        # result = self.db_conn.execute(sel)
+        # rows = result.fetchall()
+        # result.close()
+        # existing = [str(r[0]) for r in rows]
+        # # which of desired_fruits is not already in table?
+        # fruits = [f for f in DESIRED_FRUITS if f not in existing]
+        # insert = self.tb_labels.insert(None)
+        # for label in fruits:
+        #     self.db_conn.execute(insert, label=label)
 
         # Other important data structures
         self.browse_list_object = None
         self.updates = False
         self.updates_browse_list = False
+        self.search_results_map = None
 
     def nothing(self):
         """Keeping pylint happy"""
-        pass
 
 
 def search_path(pathname):
@@ -356,7 +446,10 @@ def search_path(pathname):
     # expect only one result
     if len(rows) == 1:
         row = rows[0]
-        item = ItemEntry(Path(row[0]), row[1], Path(row[2]), row[3])
+        # print(f'search_path: row[1] "{row[1]}" of type {type(row[1])}' \
+        #      + f' row[3] "{row[3]}" of type {type(row[3])}')
+        # sys.stdout.flush()
+        item = ItemEntry(Path(row[1]), row[2], Path(row[3]), row[4])
         return item
     if len(rows) > 1:
         raise DDMSException(f'Multiple matches for path {str_pathname}')
@@ -390,41 +483,62 @@ def get_hash(pathname):
     return sha512(pathname.read_bytes()).digest()
 
 
+def get_preview(pathname):
+    """ get jpeg preview of item """
+    if isinstance(pathname, Path):
+        pathname = str(pathname)
+    try:
+        preview = GLOBAL_DATA.preview.get_jpeg_preview(pathname, height=200, width=200)
+        thumb_path = str(Path(preview).relative_to(THUMBNAIL_DIRECTORY))
+        LOG.info('Preview generation complete')
+    except Exception:
+        ## handle unsupported mimetype exception -- create blank jpg file
+        # preview = str(THUMBNAIL_DIRECTORY.joinpath( \
+        #    str(random.randrange(100000000, 999999999)) + '.jpeg'))
+        # open(preview, 'a').close()
+        LOG.info('Preview generation failed, no thumbnail created')
+        thumb_path = None
+
+    return thumb_path
+
+
 def add_item(pathname, shahash=None):
     """add a completely new item to database"""
     LOG.info('adding item')
     str_pathname = str(pathname)
+    str_dir = str(pathname.parent)
+    if str_dir == '.':
+        str_dir = ''
+
     if shahash is None:
         shahash = get_hash(pathname)
     # generate jpeg thumbnail file and capture its path as string
-    try:
-        preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
-        thumb_path = str(Path(preview).relative_to(THUMBNAIL_DIRECTORY))
-        LOG.info('Preview generation complete')
-    except Exception as except_info:
-        ## handle unsupported mimetype exception -- create blank jpg file
-        preview = str(THUMBNAIL_DIRECTORY.joinpath(str(random.randrange(100000000, 999999999)) + '.jpeg'))
-        open(preview, 'a').close()
-        LOG.info('Preview generation failed, dummy thumbnail created')
+
+    thumb_path = get_preview(pathname)
 
     # just for development - we will assign a random fruit label 50% of the time.
-    random_int = random.randrange(2*len(DESIRED_FRUITS))
-    if random_int < len(DESIRED_FRUITS):
-        labels = DESIRED_FRUITS[random_int]
-    else:
-        labels = ''
+    # random_int = random.randrange(2*len(DESIRED_FRUITS))
+    # if random_int < len(DESIRED_FRUITS):
+    #     labels = DESIRED_FRUITS[random_int]
+    # else:
+    #     labels = ''
 
+    labels = ''
     insert = GLOBAL_DATA.tb_items.insert(None)
-    GLOBAL_DATA.db_conn.execute(insert, path=str_pathname, shahash=shahash,
+    GLOBAL_DATA.db_conn.execute(insert, dir=str_dir, path=str_pathname, shahash=shahash,
                                 thumb=thumb_path, labels=labels)
     LOG.info('Added item: %s', pathname)
 
 
 def update_item_path(old_pathname, new_pathname):
     """update an existing database entry"""
+    str_new_dir = str(new_pathname.parent)
+    if str_new_dir == '.':
+        str_new_dir = ''
+
     update = GLOBAL_DATA.tb_items.update(None) \
         .where(GLOBAL_DATA.tb_items.c.path == str(old_pathname)) \
-        .values(path=str(new_pathname))
+        .values(dir=str_new_dir, path=str(new_pathname))
     GLOBAL_DATA.db_conn.execute(update)
     LOG.info('Update path of item: was: %s, changed to %s', old_pathname, new_pathname)
 
@@ -440,13 +554,16 @@ def update_item_hash_thumb(pathname, shahash=None):
         thumbpath = Path(item.thumbnail)
         thumbpath.unlink()
         # generate jpeg thumbnail
-        preview = GLOBAL_DATA.preview.get_jpeg_preview(str_pathname, height=200, width=200)
-        thumb_path = Path(preview).relative_to(THUMBNAIL_DIRECTORY)
+        thumb_path = get_preview(pathname)
         update = GLOBAL_DATA.tb_items.update(None) \
             .where(GLOBAL_DATA.tb_items.c.path == str_pathname) \
             .values(shahash=shahash, thumb=thumb_path)
         GLOBAL_DATA.db_conn.execute(update)
         LOG.info('Update hash/preview of item %s', str_pathname)
+
+
+def remove_item_label():
+    """ Delete a label """
 
 
 def delete_item(pathname):
@@ -516,7 +633,6 @@ def monitor_filesystem():
     GLOBAL_DATA.observer.start()
 
 
-
 def monitor_queue():
     """
     We have two separate threads: 1) running the file system monitor and 2) running the bottle
@@ -552,8 +668,14 @@ def monitor_queue():
     def execute_queue_task_gui(queue_entry):
         # run the provided query and return the results on the results queue
         result = GLOBAL_DATA.db_conn.execute(queue_entry['select'])
-        RESULTSQ.put({'rows': result.fetchall()})
-        result.close()
+        if result is not None:
+            try:
+                RESULTSQ.put({'rows': result.fetchall()})
+                result.close()
+            except:
+                RESULTSQ.put({'rows': None})
+        else:
+            RESULTSQ.put({'rows': None})
 
     def execute_queue_task_delayed():
         queue_entry = qlist.pop(0)
@@ -614,7 +736,7 @@ def walk_directory_tree(directory):
             LOG.info(f'skipping: %s - what is this anyway?', pathname)
 
 
-def initial_scan():
+def initial_file_scan():
     """do this when first starting up - re-sync with directory tree"""
     # get positioned at the root of file system tree
     os.chdir(ROOT_DIRECTORY)
@@ -655,7 +777,6 @@ def search_documents():
             dir_mode = False
         if directories and len(directories) == 1 and directories[0] == '':
             directories = []
-        LOG.info(f'directories = {directories}')
 
     else:
         directories = []
@@ -665,26 +786,26 @@ def search_documents():
     else:
         labels = []
 
-    log_msg = f'directories = "{directories}", mode = "{dir_mode}", labels = "{labels}"'
-    LOG.info(log_msg)
+    # log_msg = f'directories = "{directories}", mode = "{dir_mode}", labels = "{labels}"'
+    # LOG.info(log_msg)
 
     textual_sql = ["SELECT path, thumb, labels FROM items "]
     if not directories:
         if not labels:
-            LOG.info('no dirs, no label, dir_mode: %s', dir_mode)
+            # LOG.info('no dirs, no label, dir_mode: %s', dir_mode)
             # just do the top level unless in tree mode
             if dir_mode:
                 textual_sql.append("WHERE path NOT LIKE '%/%' ")
         else:
             textual_sql.append("WHERE ( ")
             firsttime = True
-            for l in labels:
+            for label in labels:
                 if firsttime:
                     firsttime = False
                     conn_str = ""
                 else:
                     conn_str = " OR "
-                textual_sql.append(conn_str + f"labels LIKE '%{l}%' ")
+                textual_sql.append(conn_str + f"labels LIKE '%{label}%' ")
             textual_sql.append(")")
 
     else: # we have directory pieces
@@ -692,16 +813,17 @@ def search_documents():
             # have dirs without labels
             firsttime = True
             textual_sql.append("WHERE (")
-            for d in directories:
+            for dire in directories:
                 if dir_mode:
                     if firsttime:
-                        textual_sql.append(f"(path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                        textual_sql.append(f"(path LIKE '{dire}/%' AND path NOT LIKE '{dire}/%/%')")
                         firsttime = False
                     else:
-                        textual_sql.append(f"OR (path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                        textual_sql.append(f"OR (path LIKE '{dire}/%' AND path NOT LIKE " \
+                                               + f"'{dire}/%/%')")
                 else: # tree mode - want all subdirs
                     if firsttime:
-                        textual_sql.append(f"(path LIKE '{d}/%')")
+                        textual_sql.append(f"(path LIKE '{dire}/%')")
                         firsttime = False
                     else:
                         textual_sql.append(" OR (path LIKE '{d}/%')")
@@ -710,27 +832,28 @@ def search_documents():
         else:   # both labels and dirs
             textual_sql.append("WHERE ( (")
             firsttime = True
-            for l in labels:
+            for label in labels:
                 if firsttime:
                     firsttime = False
                     conn_str = ""
                 else:
                     conn_str = " OR "
-                textual_sql.append(conn_str + f"labels LIKE '%{l}%' ")
+                textual_sql.append(conn_str + f"labels LIKE '%{label}%' ")
 
             textual_sql.append(") AND (")
 
             firsttime = True
-            for d in directories:
+            for dire in directories:
                 if dir_mode:
                     if firsttime:
-                        textual_sql.append(f"(path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                        textual_sql.append(f"(path LIKE '{dire}/%' AND path NOT LIKE '{dire}/%/%')")
                         firsttime = False
                     else:
-                        textual_sql.append(f"OR (path LIKE '{d}/%' AND path NOT LIKE '{d}/%/%')")
+                        textual_sql.append(f"OR (path LIKE '{dire}/%' AND path NOT LIKE "  \
+                                               f"'{dire}/%/%')")
                 else: # tree mode - want all subdirs
                     if firsttime:
-                        textual_sql.append(f"(path LIKE '{d}/%')")
+                        textual_sql.append(f"(path LIKE '{dire}/%')")
                         firsttime = False
                     else:
                         textual_sql.append(" OR (path LIKE '{d}/%')")
@@ -775,22 +898,49 @@ def search_documents():
         LOG.error(msg)
         return msg
 
-    result_string = '<h2>Search Results:</h2>\n'
+    result_string = '<span class="mt-7"><h4>Search Results:</h4></span>\n'
+
+    GLOBAL_DATA.search_results_map = item_map = list()
+    item_counter = 0
     for row in queue_entry['rows']:
         path = row[0]
-        thumbnail = f'thumbnails/{row[1]}'
-        labels = row[2]
+        item_map.append(path)
+
+        if row[1]:  # handle blank thumbnail path
+            thumbnail = f'thumbnails/{row[1]}'
+        else:
+            thumbnail = '/static_files/img/no-preview.png'
+
+        if thumbnail is None:
+            print(f'Thumbnail is None for {path}')
+            thumbnail = '/static_files/img/no-preview.png'
+
+        labels_str = f'<span id="labels-for-{item_counter}">'
+        if row[2]:
+            labels = row[2].split(',')
+            separator = ''  # for first entry don't need to add a comma and space
+            for label in labels:
+                if not label:
+                    continue  # skip blank ones
+
+                label_key = f'search-{item_counter}-{label}'
+                labels_str += f'<span id="{label_key}">{separator}{label}<span class="ml-1">'   \
+                              + '<img src="/static_files/img/x-button.png" width="16px" ' \
+                              + f'onclick="remove_a_label(\'{label_key}\')">' \
+                              + '</span></span>'
+                separator = ', '  # subsequently, separate with comma + space
+
+        labels_str += '</span><button class="ml-2 p-0 btn-sm btn-primary compact-button"' \
+            + f'onclick="start_add_a_label(\'search-{item_counter}\')" data-toggle="modal"' \
+            + f'data-target="#add_label_modal">add</button>'
         item_entry = f"""
-          <table><tr><td width="200px"><img src="{thumbnail}"><td><b>{path}</b> 
-            &nbsp;  &nbsp; <i>Labels: {labels}</i></tr></table><br>
+          <div><table><tr><td width="200px" height="200px"><img src="{thumbnail}"></td><td class="align-top">
+              <div class="ml-2"><table><tr><td><b class="bigpath">{path}</b></td></tr> 
+              <tr><td><i>Labels: {labels_str}</i>
+              </td></tr></table></tr></table></div>
         """
         result_string += item_entry
-
-
-    LOG.info('Query Results:')
-    for row in queue_entry['rows']:
-        tstr = f'{row[0]}, {row[1]}, {row[2]}'
-        LOG.info(tstr)
+        item_counter += 1
 
     return result_string
 
@@ -800,10 +950,6 @@ def serve_static(path):
     """
     General service of static file paths
     """
-    # if sys.platform == 'linux':
-    #     new_path = SCRIPT_DIR.joinpath(path)
-    # else:
-    #     new_path = SCRIPT_DIR.joinpath(PureWindowsPath(path))
     try:
         LOG.info('serving static path %s', path)
         return static_file('static_files/'+path, root=str(SCRIPT_DIR))
@@ -813,6 +959,101 @@ def serve_static(path):
         LOG.info(exception_info)
         return "error"
 
+
+@bottle_route('/remove_label')
+def remove_label():
+    # /remove_label?id=search-2-peaches
+    label_id = bottle_request.query.id
+    parts = label_id.split('-')
+    assert len(parts) == 3
+    assert parts[0] == 'search'
+    path = GLOBAL_DATA.search_results_map[int(parts[1])]
+    label = parts[2]
+    # get existing labels
+    textual_sql = f"SELECT labels from items WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    assert len(rows) == 1
+    existing_labels = (rows[0][0]).split(',')
+    if existing_labels.count(label) >= 0:
+        existing_labels.remove(label)
+        new_label_str = ','.join(existing_labels)
+        textual_sql = f"UPDATE items set labels = '{new_label_str}' WHERE path = '{path}';"
+        sqlcommand = sqltext(textual_sql)
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+
+        # now - update the labels table, as needed
+        # 1. are there any other items still having the same label?
+        textual_sql = f"SELECT labels from items where labels LIKE '%{label}%'"
+        sqlcommand = sqltext(textual_sql)
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+        rows = queue_entry['rows']
+        if len(rows) > 0:
+            # nothing needs to be done
+            return 'success'
+
+        # 2. remove if no other uses
+        else:
+            textual_sql = f"DELETE FROM labels WHERE label = '{label}';"
+            sqlcommand = sqltext(textual_sql)
+            QUEUE.put({'type': 'gui', 'select': sqlcommand})
+            while RESULTSQ.empty():
+                time.sleep(0.01)
+            # set a longer timeout, cause we're not handling it if it expires
+            queue_entry = RESULTSQ.get(True, 150)
+            RESULTSQ.task_done()
+
+
+@bottle_route('/add_label')
+def add_label():
+    # /add_label?item_id=3;labels=obstanant
+    item_id = bottle_request.query.item_id
+    path = GLOBAL_DATA.search_results_map[int(item_id)]
+    new_labels_str = bottle_request.query.labels
+    new_labels = new_labels_str.split(',')
+    # get existing labels
+    textual_sql = f"SELECT labels from items WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    assert len(rows) == 1
+    raw_labels = str(rows[0][0])
+    if raw_labels == '':
+        existing_labels = list()
+    else:
+        existing_labels = raw_labels.split(',')
+    updated_labels = list(set(existing_labels + new_labels))  # filter through set() to drop duplicates
+    updated_label_str = ','.join(updated_labels)
+    textual_sql = f"UPDATE items set labels = '{updated_label_str}' WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+    return f'added {new_labels_str} to {path}'
 
 @bottle_route('/thumbnails/<path:path>')
 def serve_thumb(path):
@@ -840,8 +1081,10 @@ def handle_home_path():
 
 @bottle_route('/favicon.ico')
 def favicon():
+    """ Return the favicon """
     path = 'static_files/img/favicon.png'
     return static_file(path, root=str(SCRIPT_DIR))
+
 
 
 # pylint: disable-too-many-nested-blocks
@@ -869,7 +1112,12 @@ def browse_list():
         # is where the SQLite objects are created and must be used. So put
         # the request on the queue QUEUE and wait for the results on the queue
         # RESULTSQ
-        sel = sqlselect([GLOBAL_DATA.tb_items.c.path,]).order_by('path')
+
+        if BROWSE_LIST_INCLUDE_FILES:
+            sel = sqlselect([GLOBAL_DATA.tb_items.c.path,]).order_by('path')
+        else:
+            sel = sqlselect([GLOBAL_DATA.tb_items.c.dir, ]).where('dir' != '')
+
         QUEUE.put({'type': 'gui', 'select': sel})
 
         while RESULTSQ.empty():
@@ -880,65 +1128,86 @@ def browse_list():
         rows = queue_entry['rows']
         RESULTSQ.task_done()
 
-        # convert to tree representation
-        current_directory = Path('')
-        current_node = BLPathTreeNode('{root}')
-        GLOBAL_DATA.browse_list_object = current_node
+        if BROWSE_LIST_INCLUDE_FILES:
 
-        # REMEMBER: every row returned has a file and not a directory
-        for row in rows:
-            new_file_path = Path(row[0])
-            new_file_parts = new_file_path.parts
+            # convert to tree representation
+            current_directory = Path('')
+            current_node = BLPathTreeNode('{root}')
+            GLOBAL_DATA.browse_list_object = current_node
 
-            current_parts = current_directory.parts
-            # test for the case that the new_file or current is just a file, with no directory given
-            if len(new_file_parts) == 1:
-                # new is just a file, what about current?
-                if len(current_parts) == 1:
-                    # ok, we are transitioning from top level file to top level file,
-                    # no directory action necessary
-                    pass
+            # REMEMBER: every row returned has a file and not a directory
+            for row in rows:
+                new_file_path = Path(row[0])
+                new_file_parts = new_file_path.parts
+
+                current_parts = current_directory.parts
+                # test for the case that the new_file or current
+                # is just a file, with no directory given
+                if len(new_file_parts) == 1:
+                    # new is just a file, what about current?
+                    if len(current_parts) == 1:
+                        # ok, we are transitioning from top level file to top level file,
+                        # no directory action necessary
+                        pass
+                    else:
+                        # new is just a file, old was a subdirectory, so we can drop dir stuff
+                        current_directory = Path('')
+                        current_node = GLOBAL_DATA.browse_list_object
                 else:
-                    # new is just a file, old was a subdirectory, so we can drop dir stuff
-                    current_directory = Path('')
-                    current_node = GLOBAL_DATA.browse_list_object
-            else:
-                # now, new file in subdirectory, what about current
-                if len(current_parts) == 1:
-                    # current is top-level file, now build dir structure of new, if it doesn't exist
-                    current_node = current_node.create_path(new_file_parts)
-                    current_node.add_child(new_file_parts[-1]) # then add the file
-                else:
-                    # have we come to the same directory?
-                    if len(current_parts) == len(new_file_parts) - 1:
-                        idx = 0
-                        no_deal = False
-                        for current_part in current_parts:
-                            if current_part != new_file_parts[idx]:
-                                no_deal = True
-                                break
-                            idx += 1
-                        if no_deal:
+                    # now, new file in subdirectory, what about current
+                    if len(current_parts) == 1:
+                        # current is top-level file, now build dir structure
+                        # of new, if it doesn't exist
+                        current_node = current_node.create_path(new_file_parts)
+                        current_node.add_child(new_file_parts[-1]) # then add the file
+                    else:
+                        # have we come to the same directory?
+                        if len(current_parts) == len(new_file_parts) - 1:
+                            idx = 0
+                            no_deal = False
+                            for current_part in current_parts:
+                                if current_part != new_file_parts[idx]:
+                                    no_deal = True
+                                    break
+                                idx += 1
+                            if no_deal:
+                                # just work through the path
+                                current_node = current_node.create_path(new_file_parts)
+                                current_node.add_child(new_file_parts[-1])
+                            else:
+                                # current directory is the same as the new one, so just add the node
+                                current_node.add_child(new_file_parts[-1])
+                        else: # new file parts has different number of parts than current, so
                             # just work through the path
                             current_node = current_node.create_path(new_file_parts)
                             current_node.add_child(new_file_parts[-1])
-                        else:
-                            # current directory is the same as the new one, so just add the node
-                            current_node.add_child(new_file_parts[-1])
-                    else: # new file parts has different number of parts than current, so
-                        # just work through the path
-                        current_node = current_node.create_path(new_file_parts)
-                        current_node.add_child(new_file_parts[-1])
 
+        else: # not BROWSE_LIST_INCLUDE_FILES
+            # this is simplified vs above
+            if GLOBAL_DATA.browse_list_object is not None:
+                del GLOBAL_DATA.browse_list_object
+            dirs_used = list()
+            GLOBAL_DATA.browse_list_object = dirs_used
+            top_dir = Path('.')
+            slash_dir = Path('/')
+            for row in rows:
+                dire = row[0]
+                if dire and top_dir != dire and slash_dir != dire and dire not in dirs_used:
+                    dirs_used.append(dire)
 
         # processed all data returned from dB query. Now, generate the output.
+
     # else - already had an up-to-date browse list
 
-
     final_output = '{"core": {"data": [{"text": "{root}", "state": {"opened": true},"children": ['
-    final_output += GLOBAL_DATA.browse_list_object.repr_children()
-    final_output += ']}]}}'
 
+    if BROWSE_LIST_INCLUDE_FILES:
+        final_output += GLOBAL_DATA.browse_list_object.repr_children()
+    else:
+        final_output += bl_output_directories_structure()
+
+    final_output += ']}]}}'
+    # print('browse list:\n', final_output)
     return final_output
 
     # from above, for output, we need a string like this:  {
@@ -981,7 +1250,6 @@ def get_labels():
 # other bottle notes
     # bottle_response.set_header('Kevin', 'Buchs')
     # bottle_response.status = 200
-
     # @bottle_route('/name/<name>')
     # def xname(name):
     #     """routing for /name/<name>"""
@@ -993,19 +1261,42 @@ def run_ui():
     Start up the bottle server - running this entire function in a
     separate thread.
     """
+    LOG.info(f'Running bottle UI in thread {threading.get_ident()}')
     bottle_run(host='0.0.0.0', port=NETWORK_PORT, debug=True)
 
 
 def main():
     """top level function"""
+    global GLOBAL_DATA
+
+    # proceess arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--clear', dest='clear', action='store_true',
+                        help='wipe any existing data and recreate')
+    args = parser.parse_args()
+
+    # pre-run cleanup
+    wipe_existing = args.clear  # False/True for testing only, clear the board before we run if True
+    if wipe_existing:
+        print('clearing data to start fresh')
+        if DATABASE_PATH.exists():
+            DATABASE_PATH.unlink()
+        rmtree(THUMBNAIL_DIRECTORY)
+
+    # Set up lots of stuff
+    GLOBAL_DATA = GlobalData()
 
     # initially, scan the whole directory to rationalize any changes
-    initial_scan()
+    initial_file_scan()
 
     # run the web UI in other process
-    Thread(group=None, target=run_ui, name="run_ui").start()
+    threading.Thread(group=None, target=run_ui, name="run_ui").start()
     time.sleep(0.5)  # let web server spin up, then open 'home' page
-    webbrowser.open_new_tab(f'http://localhost:{NETWORK_PORT}/')
+    # try:
+    #     web = webbrowser.open_new_tab(f'http://localhost:{NETWORK_PORT}/')
+    #     LOG.info(f'webbrowser returns {web}')
+    # except ResourceWarning:
+    #     print('Caputred the Resource Warning')
 
     # run the filesystem monitor in other process
     monitor_filesystem()
@@ -1017,16 +1308,4 @@ def main():
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--clear', dest='clear', action='store_true',
-                        help='wipe any existing data and recreate')
-    args = parser.parse_args()
-    WIPE_EXISTING = args.clear  # False/True for testing only, clear the board before we run if True
-    if WIPE_EXISTING:
-        print('clearing data to start fresh')
-        if DATABASE_PATH.exists():
-            DATABASE_PATH.unlink()
-        rmtree(THUMBNAIL_DIRECTORY)
-
-    GLOBAL_DATA = GlobalData()
     main()
