@@ -449,7 +449,10 @@ def search_path(pathname):
         # print(f'search_path: row[1] "{row[1]}" of type {type(row[1])}' \
         #      + f' row[3] "{row[3]}" of type {type(row[3])}')
         # sys.stdout.flush()
-        item = ItemEntry(Path(row[1]), row[2], Path(row[3]), row[4])
+        if row[3] is None:
+            item = ItemEntry(Path(row[1]), row[2], row[3], row[4])
+        else:
+            item = ItemEntry(Path(row[1]), row[2], Path(row[3]), row[4])
         return item
     if len(rows) > 1:
         raise DDMSException(f'Multiple matches for path {str_pathname}')
