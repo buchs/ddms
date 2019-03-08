@@ -53,6 +53,17 @@
           z-index: 1100
       }
 
+      .mark-check {
+          float: right;
+          border: 0;
+          padding: 0;
+          margin-right: 0;
+      }
+
+      .bottom-border {
+          border-bottom: 1px solid blue;
+      }
+
     </style>
 
     <link rel="icon" type="image/png" href="/static_files/img/favicon.png">
@@ -65,14 +76,14 @@
         <nav class="navbar navbar-expand-sm navbar-light bg-light p-1">
               <ul class="navbar-nav mr-auto">
 
-                <li class="my-0 p-0 mr-5">
+                <li class="my-0 p-0 mr-2">
                   <img src="/static_files/img/ddms.png" height="20"/>
                 </li>
 
                 <li class="my-0">
                   <button
                     id="browse-list"
-                    class="nav-button p-0 btn-sm btn-primary compact-button"
+                    class="nav-button p-0 btn-sm btn-primary compact-button mr-2"
                     onclick="showBrowseList()"
                     data-toggle="modal"
                     data-target="#browse_list_modal"
@@ -81,8 +92,8 @@
                   </button>
                 </li>
 
-                <li class="">
-                    <span class="my-0 ml-15"> &nbsp; &nbsp; Search Parameters: &nbsp; </span>
+                <li>
+                    <span class="my-0 mr-1">Search:</span>
                 </li>
 
                 <li class="my-0 p-0" onclick="toggle_tree_dir()">
@@ -90,22 +101,18 @@
                       <span id="toggle-tree" class="toggle-red"   >Tree</span>
                 </li>
 
-                <li class="my-0">
-                  <span class="my-0">
-                      <span class="form-check-inline autoc">
-                          <label class="my-auto" for="selectedDirs"> &nbsp; &nbsp; &nbsp; Dirs:</label>
+                <li class="my-0 ml-2 mr-2">
+                    <span class="form-check-inline autoc">
+                          <label class="my-auto" for="selectedDirs">Dirs:</label>
                           <input type="text" class="form-control-sm p-0 my-0" id="selectedDirs" placeholder="empty">
-                      </span>
-                  </span>
+                    </span>
                 </li>
 
-                <li class="my-0">
-                  <span class="my-0">
-                      <span class="form-check-inline">
-                          <label class="my-auto" for="selectedLabels" class=""> &nbsp; &nbsp; &nbsp; Labels:</label>
-                          <input type="text" class="form-control-sm p-0 my-0"
-                                 id="selectedLabels" placeholder="empty">
-                      </span>
+                <li class="my-0 ml-0 mr-2">
+                  <span class="form-check-inline">
+                      <label class="my-auto" for="selectedLabels" class="">Labels:</label>
+                      <input type="text" class="form-control-sm p-0"
+                             id="selectedLabels" placeholder="empty">
                   </span>
                 </li>
 
@@ -171,6 +178,44 @@
          </div>
 
 
+         <div class="modal bulk-action-dialog" id="bulk_action_modal" role="dialog">
+             <div class="modal-dialog" role="document">
+                 <div class="modal-content">
+                     <div class="modal-header">
+                         <h3 class="modal-title">Bulk Actions</h3>
+                         <button type="button" class="close btn button-sm btn-danger ml-auto mr-0 my-0 p-0"
+                                 data-dismiss="modal" onclick="cancel_bulk_action()">
+                            &times;</button>
+                     </div>
+                     <div class="modal-body">
+                         <form onsubmit="return false;">
+                             <div class="form-group">
+                                 <input type="radio" id="bulk-radio-add" name="bulk-action-radiosX" checked tabindex="4">
+                                 <label for="bulk-radio-add">Add labels</label>
+                             </div>
+                             <div class="form-group">
+                                 <input type="radio" id="bulk-radio-del" name="bulk-action-radiosX" tabindex="5">
+                                 <label for="bulk-radio-del">Delete labels</label>
+                             </div>
+                             <div class="my-8 form-group">
+                                 <input type="text" class="" tabindex="1"
+                                    id="bulk_action_label_input" placeholder="enter labels here" />
+                             </div>
+                             <button type="button" class="btn btn-primary ml-0 mr-auto my-5"
+                                      tabindex="2" onclick="finish_bulk_action()" data-dismiss="modal">
+                                 Apply Action
+                             </button>
+                             <button type="button" class="btn btn-secondary ml=auto my-5" data-dismiss="modal"
+                                       tabindex="3" onclick="cancel_bulk_action()">
+                                 Cancel
+                             </button>
+                         </form>
+                     </div>
+                 </div>
+             </div>
+         </div>
+
+
 
 
         <!-- The contents of the main_section will be blown away when we have run a search -->
@@ -225,226 +270,8 @@
      <script src="/static_files/js/popper.min.js"></script>
      <script src="/static_files/js/bootstrap.min.js"></script>
      <script src="/static_files/js/jstree/jstree.min.js"></script>
-     <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
-
-     <script type="text/javascript">
-
-        const root_node_name = '{root}';
-        var tree_dir_state = 'dirs';
-
-        //--------------- For Tree/Dir Indicator -----------------
-
-        function toggle_tree_dir() {
-            var toggle_tree = jQuery('#toggle-tree');
-            var toggle_dir  = jQuery('#toggle-dir');
-
-            if (tree_dir_state == 'dirs') {
-                tree_dir_state = 'trees';
-                toggle_tree.removeClass('toggle-red');
-                toggle_tree.addClass('toggle-green');
-                toggle_dir.removeClass('toggle-green');
-                toggle_dir.addClass('toggle-red');
-            } else {
-                tree_dir_state = 'dirs';
-                toggle_tree.removeClass('toggle-green');
-                toggle_tree.addClass('toggle-red');
-                toggle_dir.removeClass('toggle-red');
-                toggle_dir.addClass('toggle-green');
-            }
-        }
-
-
-        // --------------- For Browse List -----------------
-
-        function browseListChanges(first, second) {
-            let jst = jQuery('#browselist').jstree();
-            var selected_paths = [];
-            for(let x = 0; x < second.selected.length; x++) {
-                const node = jst.get_node(second.selected[x]);
-                var path = jst.get_path(node);
-                path.shift(); // remove root
-                // if a file was selected, remove the end of the array to just have directory
-                if (node.icon == 'jstree-file') path.pop()
-                selected_paths.push(path.join('/'));
-            }
-            const component = jQuery('#selectedDirs');
-            component.val(selected_paths.join(','));
-        }
-
-
-        function showbl_callback(data) {
-            let tree_struct = JSON.parse(data);
-            tree_struct.plugins = ["changed", "wholerow"];
-            let component = jQuery('#browselist');
-            component.on('select_node.jstree', browseListChanges);
-            component.on('deselect_node.jstree', browseListChanges);
-            component.jstree(tree_struct);
-        };
-
-        function showBrowseList() {
-            jQuery.get('/browselist', {}, showbl_callback);
-        }
-
-        // -------------- Handling navbar labels field -----------------------------------
-
-        // We need to have an up-to-date list of labels from the database.
-        // Start with copy here (at loading) and then update it whenever
-        // we are about editing the labels.
-        function refresh_labels_cb(data) {
-            labels = JSON.parse(data);
-        }
-
-        function refresh_labels() {
-            jQuery.get('/labels', {}, refresh_labels_cb);
-        }
-
-        refresh_labels();  // do it now
-
-        function custom_matcher(request, response) {
-            const request_term = $.ui.autocomplete.escapeRegex(request.term);
-            const elements = request_term.toString().split('\\,');
-            const last_input = elements[elements.length-1];
-            var completed = '';
-            for (let i = 0; i < elements.length - 1; i++) {
-                completed += elements[i] + ',';
-            }
-            var matcher = new RegExp("^" + last_input, "i");
-            var results = $.grep(labels, function(item) {
-                     return matcher.test(item);
-            });
-            // append the other, already-complete labels (comma delimited)
-            for (let i = 0; i < results.length; i++) {
-                results[i] = completed + results[i];
-            }
-            response(results);
-        };
-
-        // Register a click listener
-        const selected_labels = jQuery('#selectedLabels');
-
-        jQuery( function register() {
-            selected_labels.autocomplete({ source: custom_matcher});
-        });
-
-
-
-        // ---------- For main search ------------------------------
-
-        function search_callback(data) {
-            console.log('search results:\n'+data);
-            var main = jQuery('#main_section')
-            main.empty()
-            main.append(data);
-        };
-
-        function do_main_search() {
-            var labels = jQuery('#selectedLabels').val().toLowerCase();
-            var dirs = jQuery('#selectedDirs').val();
-            if (labels === '')  labels = undefined;
-            if (dirs === '') dirs = undefined;
-            var uri_string = '/search';
-            var sep = '?';
-            if (dirs !== undefined) {
-                uri_string += sep + tree_dir_state + '=' + dirs;
-                sep = '&';
-            } else {
-                uri_string += sep + tree_dir_state + '=';
-                sep = '&';
-            }
-            if (labels != undefined) {
-                uri_string += sep + 'labels=' + labels;
-            }
-            const url = encodeURI(uri_string);
-            // console.log('Url: ' + url);
-            jQuery.get(url, {}, search_callback);
-            console.log('get '+url+' issued.');
-        }
-
-
-        // ---------- For adding/removing labels from items --------
-
-        var active_item_id;  // keeps track of what we are working on
-        const add_labels_modal = jQuery('#add_label_modal');
-
-        // Set up autocomplete for the add label modal dialog for adding labels to items
-        const add_a_label_input = jQuery('#add_a_label_input');
-
-        jQuery( function register2() {
-            add_a_label_input.autocomplete({ source: custom_matcher});
-        });
-
-        // setup focus on modal shown
-        add_labels_modal.on('shown.bs.modal', function() {
-            add_a_label_input.focus();
-        } );
-
-        // handle pressing enter in add label input
-        $('#add_a_label_input').keyup( function(event) {
-            if (event.keyCode === 13) finish_add_a_label(); } );
-
-        function start_add_a_label(item_id) {
-            if (item_id.slice(0,7) != 'search-') {
-                alert(`problem here with item_id of ${item_id}`);
-            } else {
-                active_item_id = item_id.slice(7, item_id.length);
-                // add_a_label_input[0].focus();
-                // docoument.getElementById("add_a_label_input").focus();
-                // add_a_label_input.setCursorPosition = 0;
-            }
-        }
-
-        function finish_add_a_label() {
-            add_labels_modal.modal('toggle');
-            const newlabels = add_a_label_input[0].value.toLowerCase();
-            add_a_label_input[0].value = '';  // clear it for next time
-            jQuery.get('/add_label?item_id=' + active_item_id + ';labels=' + newlabels);
-            // add to search results
-            const labels_span_id = `#labels-for-${active_item_id}`;
-            const labels_span = $(labels_span_id);
-            var prefix = '';
-            // determine if there are existing labels
-            console.log(`labels_span children length = ${labels_span.children().length}`);
-            if (labels_span.children().length > 0) prefix = ', ';
-            var label_key;
-            var labels_str = ''; // build this incrementally for each label
-            newlabels.split(',').forEach(function(label) {
-                label_key = `search-${active_item_id}-${label}`;
-                labels_str += `<span id="${label_key}">${prefix}${label}<span class="ml-1">`
-                              + '<img src="/static_files/img/x-button.png" width="16px" '
-                              + "onclick=\"remove_a_label('" + label_key + "')\"></span></span>";
-                prefix = ', ';  // subsequently, separate with comma + space
-            });
-
-            // labes_str = labels_str.replace(/</g, '\<').replace(/>/g, '\>')
-
-            // insert the new html into the page before the Add button
-            labels_span.append(labels_str);
-        }
-
-        function cancel_add_a_label() {
-            add_labels_modal.modal('toggle');
-            add_a_label_input.value = '';
-        }
-
-        function remove_a_label(labelId) {
-            // remove from GUI
-            var idselector = "#" + labelId;
-            // TODO: removing the comma-space from the next label if just delete the first one.
-            $(idselector).remove();
-            // remove from database
-            jQuery.get('/remove_label?id=' + labelId);
-            refresh_labels();
-        }
-
-        /* ---------- Notes for reference --------------------------
-          modifying element class
-          document.getElementById(menu_state).style = 'display:none';
-          var classparts = document.getElementById(menu_link).classList;
-          classparts.remove('active');
-          document.getElementById(menu_link).classList = classparts;
-        */
-
-     </script>
+     <script src="/static_files/js/jquery-ui.min.js"></script>
+     <script src="/static_files/js/main.js"></script>
 
 </body>
 </html>

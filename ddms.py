@@ -781,6 +781,11 @@ def search_documents():
     else:
         directories = []
 
+    # correct windows backslashes to forward.
+    for idx, dire in enumerate(directories):
+        if '\\' in dire:
+            directories[idx] = dire.replace('\\','/')
+
     if 'labels' in query_string_dict:
         labels = query_string_dict['labels']
     else:
@@ -898,7 +903,28 @@ def search_documents():
         LOG.error(msg)
         return msg
 
-    result_string = '<span class="mt-7"><h4>Search Results:</h4></span>\n'
+    result_string = """
+    <div class="mt-4 mb-2">
+      <table class="bottom-border" width="100%">
+        <tr>
+          <td><b class="h4">Search Results:</b></td>
+          <td>
+            <span class="float-right" valign="middle">
+              <button id="mark-action" class="nav-button p-0 mr-1 btn-sm btn-primary compact-button"
+                 onclick="check_bulk_action()">
+                 bulk action</button>
+              <button id="mark-selected" class="nav-button p-0 mx-1 btn-sm btn-primary compact-button"
+                onclick="mark_selected()">mark selected</button>
+              <span class="ml-1 mr-0 mark-check">
+                <input type="checkbox" id="checkbox-for-all" onchange="mark_all()"
+                    valign="middle">
+              </span>
+            </span>
+          </td>
+        </tr>
+      </table>
+    </div>
+    """
 
     GLOBAL_DATA.search_results_map = item_map = list()
     item_counter = 0
@@ -934,10 +960,20 @@ def search_documents():
             + f'onclick="start_add_a_label(\'search-{item_counter}\')" data-toggle="modal"' \
             + f'data-target="#add_label_modal">add</button>'
         item_entry = f"""
-          <div><table><tr><td width="200px" height="200px"><img src="{thumbnail}"></td><td class="align-top">
-              <div class="ml-2"><table><tr><td><b class="bigpath">{path}</b></td></tr> 
-              <tr><td><i>Labels: {labels_str}</i>
-              </td></tr></table></tr></table></div>
+          <table width="100%" class="mt-2"><col width="230px"><col><col width="20px">
+              <tr><td width="230px" height="200px" class="align-top"><img src="{thumbnail}"></td>
+                  <td class="align-top">
+                     <table>
+                        <tr><td><b class="bigpath path-{item_counter}">{path}</b></td></tr>               
+                        <tr><td><i>Labels: {labels_str}</i></td></tr>
+                     </table>
+                  </td>
+                  <td class="align-top mark-check"><span class="ml-auto mr-0 p-0">
+                     <input type="checkbox" class="item-checkbox"
+                      id="checkbox-for-{item_counter}"></span>
+                  </td>
+              </tr>
+          </table>
         """
         result_string += item_entry
         item_counter += 1
