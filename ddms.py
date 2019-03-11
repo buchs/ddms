@@ -27,6 +27,7 @@ import random
 import logging
 import argparse
 import threading
+import subprocess
 import webbrowser
 
 # About making use of pathlib, instead of os.path and some others.
@@ -58,15 +59,13 @@ if 'USER' in os.environ and os.environ['USER'] == 'buchs' and sys.platform == 'l
     # Could be Dad
     ROOT_DIRECTORY = Path('/home/buchs/Play').expanduser().resolve()
     DATABASE_PATH = Path('/home/buchs/Dropbox/DDMS/data.sqlite').expanduser().resolve()
-    # SCRIPT_DIR = Path(__file__).expanduser().absolute().parent
     SCRIPT_DIR = Path('/home/buchs/Dropbox/DDMS')
 else:
     # Should be David
     ROOT_DIRECTORY = Path("C:\\Users\\dbuchs\\Dropbox\\To File\\test").expanduser().resolve()
     DATABASE_PATH = Path('C:\\Users\\dbuchs\\Dropbox\\data.sqlite').expanduser().resolve()
-    #  windows: 'C:\\path\\to\\database.db'   # those are backslashes doubled
-    # you can nest this in the root directory, be sure the file ends with .sqlite
     SCRIPT_DIR = Path(__file__).expanduser().absolute().parent
+
 
 THUMBNAIL_DIRECTORY = ROOT_DIRECTORY.joinpath('.thumbnails')
 
@@ -982,6 +981,28 @@ def search_documents():
         item_counter += 1
 
     return result_string
+
+
+@bottle_route('/items/<path:path>')
+def open_item(path):
+    """
+    Serves search result files to browser
+    """
+    return static_file(path, root=str(ROOT_DIRECTORY))
+
+@bottle_route('/items-native/<path:path>')
+def open_item_native(path):
+    """"
+    Starts up native tool for opening a given file
+    """
+    filepath = ROOT_DIRECTORY / path
+    if sys.platform == 'linux':
+        subprocess.run(f'/usr/bin/xdg-open {filepath}', shell=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        # hoping this works as expected on Windows...
+        subprocess.run(filepath, shell=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 @bottle_route('/static_files/<path:path>')

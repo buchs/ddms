@@ -3,6 +3,19 @@
 const root_node_name = '{root}';
 var tree_dir_state = 'dirs';
 
+//--------------- General Helpers ------------------------
+function listProperties(obj) {
+   // find class
+   console.log('Class: ' + Object.prototype.toString.call(obj));
+   var propList = "";
+   for(var propName in obj) {
+      if(typeof(obj[propName]) != "undefined") {
+         propList += (propName + ", ");
+      }
+   }
+   console.log(propList);
+}
+
 //--------------- For Tree/Dir Indicator -----------------
 
 function toggle_tree_dir() {
@@ -102,11 +115,11 @@ jQuery( function register() {
 // ---------- For main search ------------------------------
 
 function search_callback(data) {
-    // console.log('search results:\n'+data);
     var main = jQuery('#main_section')
     main.empty()
     main.append(data);
-};
+    $('.bigpath').single_double_click(single_click_callback, double_click_callback);
+}
 
 function do_main_search() {
     var labels = jQuery('#selectedLabels').val().toLowerCase();
@@ -411,6 +424,62 @@ function finish_bulk_action() {
 function cancel_bulk_action() {
     bulk_action_input[0].value = '';  // clear for next go-around
 }
+
+
+
+// -----------------------------------------------------------
+// Handle opening items from search results
+
+
+jQuery.fn.single_double_click = function(single_click_callback, double_click_callback, timeout) {
+
+  var event_source;
+
+  function sdc_outer() {
+    var clicks = 0, self = this;
+    function sdc_timer() {
+       var item_id, item_path;
+       for (itsclass of event_source.target.classList) {
+            m = /^path-([0-9]+)$/.exec(itsclass);
+            if (m) {
+                item_id = m[1];
+                break;
+            }
+       }
+       item_path = event_source.target.textContent;
+
+       if (clicks == 1) {
+           single_click_callback.call(self, item_id, item_path);
+       } else {
+           double_click_callback.call(self, item_id, item_path);
+       }
+       clicks = 0;
+    }
+
+    function sdc_inner(event) {
+      event_source = event;
+      clicks++;
+      if (clicks == 1) {
+          setTimeout(sdc_timer, timeout || 300);
+      }
+    }
+
+    jQuery(this).click(sdc_inner);
+  }
+  return this.each(sdc_outer);
+}
+
+function single_click_callback(item_id, item_path) {
+    // open in browser or at least via browser
+    console.log('single click handler. path: ' + item_id + ', ' + item_path);
+    var win = window.open('items/' + item_path, '_blank');
+}
+
+function double_click_callback(item_id, item_path) {
+    console.log('double click handler. path: ' + item_id + ', ' + item_path);
+    jQuery.get('items-native/' + item_path);
+}
+
 
 
 /* ---------- Notes for reference --------------------------
