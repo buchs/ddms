@@ -169,9 +169,6 @@ function start_add_a_label(item_id) {
         alert(`problem here with item_id of ${item_id}`);
     } else {
         active_item_id = item_id.slice(7, item_id.length);
-        // add_a_label_input[0].focus();
-        // docoument.getElementById("add_a_label_input").focus();
-        // add_a_label_input.setCursorPosition = 0;
     }
 }
 
@@ -427,9 +424,179 @@ function cancel_bulk_action() {
 
 
 
+// ---------- For adding/removing biblerefs from items --------
+
+var active_item_id;  // keeps track of what we are working on
+const add_biblerefs_modal = jQuery('#add_bibleref_modal');
+
+// Set up autocomplete for the add bibleref modal dialog for adding biblerefs to items
+const add_a_bibleref_input = jQuery('#add_a_bibleref_input');
+
+jQuery( function register2() {
+    add_a_bibleref_input.autocomplete({ source: custom_matcher});
+});
+
+// setup focus on modal shown event
+add_biblerefs_modal.on('shown.bs.modal', function() {
+    add_a_bibleref_input.focus();
+} );
+
+// handle pressing enter in add bibleref input
+$('#add_a_bibleref_input').keyup( function(event) {
+    if (event.keyCode === 13) finish_add_a_bibleref(); } );
+
+function start_add_a_bibleref(item_id) {
+    if (item_id.slice(0,7) != 'search-') {
+        alert(`problem here with item_id of ${item_id}`);
+    } else {
+        active_item_id = item_id.slice(7, item_id.length);
+    }
+}
+
+function get_bibleref_number(span_element) {
+    // Retrieve the html element id. It will be of the form search-0-BR2  (item 0, Bibleref 2)
+    const regexp4 = new RegExp('search-[0-9][0-9]*-BR([0-9][0-9]*)');
+    var bibleref_num = regexp4.exec(span_element.id)[1];
+    console.log('got bibleref # ' + bibleref_num);
+    return bibleref_num;
+}
+
+function finish_add_a_bibleref() {
+
+    /* It should be noted again, we will not resuse the numbers of the biblerefs when deleting and then adding
+       biblerefs. So we just keep a count of the last one added as an attribute (num) on the span element
+       enclosing the biblerefs for a particular search item. Also, noting that the num attribute of the
+        bibleref span for a given search item is set to the next available number. So, use it first, then
+        increment it for the next use.
+    */
+
+    add_biblerefs_modal.modal('toggle');
+    const new_biblerefs = add_a_bibleref_input[0].value;
+    add_a_bibleref_input[0].value = '';  // clear it for next time
+    var get_response = jQuery.get('/add_bibleref?item_id=' + active_item_id + ';biblerefs=' + new_biblerefs);
+    console.log('response from /add_bibleref?item_id: ' + get_response);
+
+    // add to search results
+    const biblerefs_span_id = `#biblerefs-for-${active_item_id}`;
+    const biblerefs_span = $(biblerefs_span_id);
+    // retrieve number of existing bibleref slots
+    var num_bibleref_slots = biblerefs_span.attr('num');
+    // also retrieve the actual number of biblerefs and set prefix on that basis (whether a comma is used)
+    var prefix = '';
+    if (biblerefs_span.children().length > 0) prefix = ', ';
+
+    var bibleref_key;
+    var biblerefs_str = ''; // build this incrementally for each bibleref
+
+    new_biblerefs.split(',').forEach(function(bibleref) {
+        bibleref_key = `search-${active_item_id}-BR${num_bibleref_slots}`;
+        num_bibleref_slots++;
+        biblerefs_str += `<span id="${bibleref_key}">${prefix}${bibleref}<span class="ml-1">`
+                      + '<img src="/static_files/img/x-button.png" width="16px" '
+                      + "onclick=\"remove_a_bibleref('" + bibleref_key + "')\"></span></span>";
+        prefix = ', ';  // subsequently, separate with comma + space
+    });
+
+    // insert the new html into the page before the Add button
+    biblerefs_span.append(biblerefs_str);
+    // and update the attribute of the current number of bibleref slots
+    biblerefs_span.attr('num',num_bibleref_slots.toString());
+}
+
+function cancel_add_a_bibleref() {
+    add_biblerefs_modal.modal('toggle');
+    add_a_bibleref_input.value = '';
+}
+
+function remove_a_bibleref(bibleref_id) {
+    // remove from GUI
+    const idselector = "#" + bibleref_id;
+    $(idselector).remove();
+
+    // removing the comma-space from the first bibleref if just deleted the first one.
+    // work backwards from the bibleref_id, a string of the form search-#-bibleref, where
+    // # is the item number. We need just that number
+    const regexp3 = /search-([^-]+)-.*/;
+    const number = regexp3.exec(bibleref_id)[1];
+    if (number !== null) {
+        var remaining_biblerefs = get_biblerefs(number);
+        const first_bibleref_key = `#search-${number}-${remaining_biblerefs[0]}`;
+        if ($(first_bibleref_key).length > 0) {
+
+            var txt = $(first_bibleref_key)[0].firstChild.textContent;
+            if (txt !== undefined && /, .*/.exec(txt) !== null) {
+                $(first_bibleref_key)[0].firstChild.textContent = txt.replace(/^, /, '');
+            }
+        }
+    }
+    // remove from database
+    jQuery.get('/remove_bibleref?id=' + bibleref_id);
+}
+
+
+function get_biblerefs(item) {
+    // take an item which is a string of an *integer* ("4") for the item in search results
+    // and return all current biblerefs
+    const biblerefs_span_id = '#biblerefs-for-' + item;
+    const biblerefs_span = $(biblerefs_span_id);
+    const span_id_prefix = `search-${item}-`;
+    var results = new Array();
+
+    biblerefs_span.children().each(function(index, span_element) {
+        var bibleref = span_element.id;
+        // verify the string starts with span_id_prefix and then remove that part to leave the bibleref itself
+        if (bibleref.startsWith(span_id_prefix)) {
+            results.push(bibleref.substring(span_id_prefix.length));
+        } else {
+            console.log(`What am I supposed to do with this bibleref span id: ${bibleref}?`);
+        }
+    })
+
+    return(results);
+}
+
+// -----------------------------------------------------------
+// Search by biblerefs
+
+var search_biblerefs_modal = $('#search-biblerefs-modal');
+var search_biblerefs_input = $('#search-biblerefs-input');
+var search_biblerefs_label_input = $('#search-biblerefs-label-input');
+
+// handle pressing enter in search biblerefs inputs
+search_biblerefs_input.keyup( function(event) {
+    if (event.keyCode === 13) finish_search_biblerefs(); } );
+search_biblerefs_label_input.keyup( function(event) {
+    if (event.keyCode === 13) finish_search_biblerefs(); } );
+
+
+function finish_search_biblerefs() {
+
+    // gui cleanup
+    search_biblerefs_modal.modal('toggle');
+    const biblerefs = search_biblerefs_input[0].value;
+    search_biblerefs_input[0].value = '';  // clear it for next time
+    const labels = search_biblerefs_label_input[0].value;
+    search_biblerefs_label_input[0].value = '';
+    console.log(`labels: ${labels}`);
+    // query the backend
+    var uri_string = `/search_bible?labels=${labels};biblerefs=${biblerefs}`;
+    const url = encodeURI(uri_string);
+    console.log(`url: ${url}`);
+    jQuery.get(url, {}, search_callback);  // search_callback is the same handler we use for main search above
+
+}
+
+
+function cancel_search_biblerefs() {
+    // just cleanup gui
+    search_biblerefs_modal.modal('toggle');
+    search_biblerefs_input[0].value = '';
+    search_biblerefs_label_input[0].value = '';
+}
+
+
 // -----------------------------------------------------------
 // Handle opening items from search results
-
 
 jQuery.fn.single_double_click = function(single_click_callback, double_click_callback, timeout) {
 

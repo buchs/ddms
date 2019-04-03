@@ -9,80 +9,10 @@ What you need to run this:
       pip install sqlalchemy
  - Change the constants below for the path to ROOT DIRECTORY, etc.
  - Run the script in a terminal/cmd window: python3.6 ddms.py
-
-What you have here is no GUI interface, just the file system scanning to populate
-the database. So, if working, you should see messages about all your files
-being added. Then, when the output stops and you see the file system monitor is
-running, you can do additional tests to add a file, delete a file, change a file's
-contents (just have a text file you edit), move file from one directory to
-another, and rename a file keeping it in the same directory.
 """
 
-import os
-import sys
-import time
-import json
-import queue
-import random
-import logging
-import argparse
-import threading
-import subprocess
-import webbrowser
-
-# About making use of pathlib, instead of os.path and some others.
-# Mostly, paths stay Path objects unless a string is required, such as:
-# the preview generator and the database storage. Otherwise, we can do
-# most things from a Path object, such as reading a byte array from the
-# file referenced by the Path object.
-from pathlib import Path
-
-from hashlib import sha512  # get sha 512 bit hash with sha512(string)
-from shutil import rmtree
-from tempfile import TemporaryFile
-
-# needed setup: pip3.6 install preview_generator, watchdog and sqlalchemy
-from preview_generator.manager import PreviewManager
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from sqlalchemy import create_engine, Table, Column, String, MetaData
-from sqlalchemy import select as sqlselect, text as sqltext
-from bottle import route as bottle_route, run as bottle_run,  \
-    static_file, request as bottle_request
-# could include:  template,, response as bottle_response
-# noinspection PyPep8,Pylint
-from bottle import debug as bottle_debug
-
-# Constants that may need to be changed
-# start at the root level, e.g. c:/Users/david/...
-if 'USER' in os.environ and os.environ['USER'] == 'buchs' and sys.platform == 'linux':
-    # Could be Dad
-    ROOT_DIRECTORY = Path('/home/buchs/Play').expanduser().resolve()
-    DATABASE_PATH = Path('/home/buchs/Dropbox/DDMS/data.sqlite').expanduser().resolve()
-    SCRIPT_DIR = Path('/home/buchs/Dropbox/DDMS')
-else:
-    # Should be David
-    ROOT_DIRECTORY = Path("C:\\Users\\dbuchs\\Dropbox\\To File\\test").expanduser().resolve()
-    DATABASE_PATH = Path('C:\\Users\\dbuchs\\Dropbox\\data.sqlite').expanduser().resolve()
-    SCRIPT_DIR = Path(__file__).expanduser().absolute().parent
-
-
-THUMBNAIL_DIRECTORY = ROOT_DIRECTORY.joinpath('.thumbnails')
-
-EXCLUDE_EXTENSIONS = ['sqlite']
-IGNORED_DIRECTORIES = [Path('.thumbnails')]
-
-NETWORK_PORT = 8080
-BROWSE_LIST_INCLUDE_FILES = False
-
-# THINGS CONFIGURED TO SUPPORT DEVELOPMENT
-DESIRED_FRUITS = ['apple', 'banana', 'orange', 'peaches', 'plums']
-LOG_FILE = 'ddms.log'  # just file name
-LOGGING_FORMAT = '%(asctime)-15s  %(message)s'
-logging.basicConfig(format=LOGGING_FORMAT)
-LOG = logging.getLogger('DDMS')
-LOG.setLevel('INFO')
-LOG.addHandler(logging.FileHandler(SCRIPT_DIR.joinpath(LOG_FILE)))
+from imports import *     # need these in root namespace
+from constants import *   # root namespace
 
 # noinspection PyPep8,Pylint
 bottle_debug(mode=True)
@@ -393,9 +323,13 @@ class GlobalData:
                               Column('path', String, primary_key=True, index=True),
                               Column('shahash', String, index=True),
                               Column('thumb', String),
-                              Column('labels', String))
+                              Column('labels', String),
+                              Column('bibleref', String, index=True))
         self.tb_labels = Table('labels', metadata,
                                Column('label', String, index=True))
+        self.tb_mdata = Table('mdata', metadata,
+                         Column('keycol', String, primary_key=True, index=True),
+                         Column('valcol', String))
 
         if self.fresh_data:  # first time through, create the tables
             metadata.create_all(self.db_engine)
@@ -427,6 +361,7 @@ class GlobalData:
         self.updates = False
         self.updates_browse_list = False
         self.search_results_map = None
+        self.search_results_biblerefs = None
 
     def nothing(self):
         """Keeping pylint happy"""
@@ -528,7 +463,7 @@ def add_item(pathname, shahash=None):
     labels = ''
     insert = GLOBAL_DATA.tb_items.insert(None)
     GLOBAL_DATA.db_conn.execute(insert, dir=str_dir, path=str_pathname, shahash=shahash,
-                                thumb=thumb_path, labels=labels)
+                                thumb=thumb_path, labels=labels, bibleref=None)
     LOG.info('Added item: %s', pathname)
 
 
@@ -753,8 +688,126 @@ def initial_file_scan():
             print(str(leftover_path))
             delete_item(leftover_path)
 
+
+
 # ----------------------------------------------------
-# Callbacks for Web GUI
+# Callbacks for Web GUI and helper functions
+
+def generate_search_output(queue_entry):
+
+    # this is the top menu-bar for the search results
+    result_string = """
+    <div class="mt-4 mb-2">
+      <table class="bottom-border" width="100%">
+        <tr>
+          <td><b class="h4">Search Results:</b></td>
+          <td>
+            <span class="float-right" valign="middle">
+              <button id="mark-action" class="nav-button p-0 mr-1 btn-sm btn-primary compact-button"
+                 onclick="check_bulk_action()">
+                 bulk action</button>
+              <button id="mark-selected" class="nav-button p-0 mx-1 btn-sm btn-primary compact-button"
+                onclick="mark_selected()">mark selected</button>
+              <span class="ml-1 mr-0 mark-check">
+                <input type="checkbox" id="checkbox-for-all" onchange="mark_all()"
+                    valign="middle">
+              </span>
+            </span>
+          </td>
+        </tr>
+      </table>
+    </div>
+    """
+
+
+    GLOBAL_DATA.search_results_map = item_map = list()
+    GLOBAL_DATA.search_results_biblerefs = biblerefs_map = list()
+    item_counter = 0
+    for row in queue_entry['rows']:
+        path = row[0]
+        item_map.append(path)
+
+        if row[1]:  # handle blank thumbnail path
+            thumbnail = f'thumbnails/{row[1]}'
+        else:
+            thumbnail = '/static_files/img/no-preview.png'
+
+        if thumbnail is None:
+            print(f'Thumbnail is None for {path}')
+            thumbnail = '/static_files/img/no-preview.png'
+
+        labels_str = f'<span id="labels-for-{item_counter}">'
+        if row[2]:
+            labels = row[2].split(',')
+            separator = ''  # for first entry don't need to add a comma and space
+            for label in labels:
+                if not label:
+                    continue  # skip blank ones
+
+                label_key = f'search-{item_counter}-{label}'
+                labels_str += f'<span id="{label_key}">{separator}{label}<span class="ml-1">'   \
+                              + '<img src="/static_files/img/x-button.png" width="16px" ' \
+                              + f'onclick="remove_a_label(\'{label_key}\')">' \
+                              + '</span></span>'
+                separator = ', '  # subsequently, separate with comma + space
+
+        labels_str += '</span><button class="ml-2 p-0 btn-sm btn-primary compact-button"' \
+            + f'onclick="start_add_a_label(\'search-{item_counter}\')" data-toggle="modal"' \
+            + f'data-target="#add_label_modal">add</button>'
+
+
+        if row[3]:
+            biblerefs = row[3].split(',')
+            biblerefs_str = f'<span id="biblerefs-for-{item_counter}" num="{len(biblerefs)}">'
+            # we will only add things to this map, not remove them. This keeps the bibleref_nums fixed
+            biblerefs_map.append(biblerefs)
+            bibleref_cntr = 0
+            separator = ''  # for first entry don't need to add a comma and space
+            for bibleref in biblerefs:
+                if not bibleref:
+                    bibleref_cntr += 1
+                    continue  # skip blank ones
+
+                bibleref_key = f'search-{item_counter}-BR{bibleref_cntr}'
+                biblerefs_str += f'<span id="{bibleref_key}">{separator}{bibleref}<span class="ml-1">'   \
+                              + '<img src="/static_files/img/x-button.png" width="16px" ' \
+                              + f'onclick="remove_a_bibleref(\'{bibleref_key}\')">' \
+                              + '</span></span>'
+                separator = ', '  # subsequently, separate with comma + space
+                bibleref_cntr += 1
+
+        else:
+            biblerefs_str = f'<span id="biblerefs-for-{item_counter}" num="0">'
+            biblerefs_map.append(list())  # create an entry for each one, even if it is blank.
+
+        biblerefs_str += '</span><button class="ml-2 p-0 btn-sm btn-primary compact-button"' \
+                      + f'onclick="start_add_a_bibleref(\'search-{item_counter}\')" data-toggle="modal"' \
+                      + f'data-target="#add_bibleref_modal">add</button>'
+
+
+        item_entry = f"""
+          <table width="100%" class="mt-2"><col width="230px"><col><col width="20px">
+              <tr><td width="230px" height="200px" class="align-top"><img src="{thumbnail}"></td>
+                  <td class="align-top">
+                     <table>
+                        <tr><td><b class="bigpath path-{item_counter}">{path}</b></td></tr>               
+                        <tr><td><i>Labels: {labels_str}</i></td></tr>
+                        <tr><td><i>Biblerefs: {biblerefs_str}</i></td></tr>
+                     </table>
+                  </td>
+                  <td class="align-top mark-check"><span class="ml-auto mr-0 p-0">
+                     <input type="checkbox" class="item-checkbox"
+                      id="checkbox-for-{item_counter}"></span>
+                  </td>
+              </tr>
+          </table>
+        """
+        result_string += item_entry
+        item_counter += 1
+
+    return result_string
+
+
 
 @bottle_route('/search')
 def search_documents():
@@ -796,7 +849,7 @@ def search_documents():
     # log_msg = f'directories = "{directories}", mode = "{dir_mode}", labels = "{labels}"'
     # LOG.info(log_msg)
 
-    textual_sql = ["SELECT path, thumb, labels FROM items "]
+    textual_sql = ["SELECT path, thumb, labels, bibleref FROM items "]
     if not directories:
         if not labels:
             # LOG.info('no dirs, no label, dir_mode: %s', dir_mode)
@@ -866,8 +919,7 @@ def search_documents():
                         textual_sql.append(" OR (path LIKE '{d}/%')")
             textual_sql.append(") )")
 
-    LOG.info('textual_sql:')
-    LOG.info(repr(textual_sql))
+    LOG.info('textual_sql: %s', str(','.join(textual_sql)))
 
     sqlcommand = None
     try:
@@ -905,82 +957,130 @@ def search_documents():
         LOG.error(msg)
         return msg
 
-    result_string = """
-    <div class="mt-4 mb-2">
-      <table class="bottom-border" width="100%">
-        <tr>
-          <td><b class="h4">Search Results:</b></td>
-          <td>
-            <span class="float-right" valign="middle">
-              <button id="mark-action" class="nav-button p-0 mr-1 btn-sm btn-primary compact-button"
-                 onclick="check_bulk_action()">
-                 bulk action</button>
-              <button id="mark-selected" class="nav-button p-0 mx-1 btn-sm btn-primary compact-button"
-                onclick="mark_selected()">mark selected</button>
-              <span class="ml-1 mr-0 mark-check">
-                <input type="checkbox" id="checkbox-for-all" onchange="mark_all()"
-                    valign="middle">
-              </span>
-            </span>
-          </td>
-        </tr>
-      </table>
-    </div>
-    """
 
-    GLOBAL_DATA.search_results_map = item_map = list()
-    item_counter = 0
+    return generate_search_output(queue_entry)
+
+
+@bottle_route('/search_bible')
+def search_biblerefs():
+    """ Bottle handler for our bibleref searches.
+    Expect input query string like /search_bible?labels=x,y,z;biblerefs=a,b,c .
+
+    What do we need for output? We need html code that gives what is necessary
+    to load up the main page view. For input we get a list of labels and a list
+     of biblerefs. """
+
+    query_string_dict = bottle_request.query.dict
+
+    if 'biblerefs' in query_string_dict:
+        raw_biblerefs = query_string_dict['biblerefs']
+        search_keys_verses = list()
+        search_keys_passages = list()
+        for rb in raw_biblerefs:
+            if rb.count('-') == 1:
+                search_keys_passages.append(bible.Passage(rb))
+            else:
+                search_keys_verses.append(bible.Verse(rb))
+
+    else:
+        LOG.error('/search_biblerefs called without biblerefs!')
+        return 'ERROR in search - no biblerefs given'
+
+    labels = [rlabel for rlabel in query_string_dict['labels']
+               if rlabel and len(rlabel) > 0]
+
+    textual_sql = ["SELECT path, thumb, labels, bibleref FROM items "]
+    if labels:
+        textual_sql.append("WHERE ( ")
+        conn_str = ''
+        for label in labels:
+            textual_sql.append(conn_str + f"labels LIKE '%{label}%' ")
+            conn_str = ' OR '
+        textual_sql.append(")")
+
+    LOG.info('textual_sql: %s', str(''.join(textual_sql)))
+
+    sqlcommand = None
+    try:
+        sqlcommand = sqltext(''.join(textual_sql))
+    except TypeError as exc:
+        msg = '<h2>Error creating SQL query</h2>'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        LOG.error(msg)
+        return msg
+    except Exception as exc:
+        msg = '<h2>Error creating SQL query</h2>'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        LOG.error(msg)
+        return msg
+
+    queue_entry = {"rows": []}
+    try:
+        # Ok, we are in the wrong thread to run a SQL query - so use the queues to get
+        # the request to the right thread. Results are
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.02)
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+        # more processing below
+
+    except Exception as exc:
+        msg = 'Error executing SQL query'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        msg += '<h4>Result</h4>'
+        msg += '<pre>' + str(queue_entry['rows']) + '</pre>'
+        LOG.error(msg)
+        return msg
+
+    # Next, look through the results for hits on the biblereferences and
+    # add row to list
+    hits = list()
     for row in queue_entry['rows']:
-        path = row[0]
-        item_map.append(path)
+        if row[3]:
+            item_biblerefs = row[3].split(',')
+            found_hit = False
+            for ib in item_biblerefs:
+                if ib.count('-') == 1:
+                    test_passage = bible.Passage(ib)
+                    for key in search_keys_verses:
+                        if test_passage.includes(key):
+                            hits.append(row)
+                            found_hit = True
+                            break  # if a hit, we have nested loops to breakout of, so break out of inner
+                    if found_hit:
+                        break  # break out of outer loop on hit
+                    for key in search_keys_passages:
+                        if key.overlap(test_passage):
+                            hits.append(row)
+                            found_hit = True
+                            break
+                    if found_hit:
+                        # we have captured, so move on to the next
+                        break
+                else:  # no dashes - not a range
+                    test_verse = bible.Verse(ib)
+                    for key in search_keys_verses:
+                        if test_verse == key:
+                            hits.append(row)
+                            found_hit = True
+                            break
+                    if found_hit:
+                        break
+                    for key in search_keys_passages:
+                        if key.includes(test_verse):
+                            hits.append(row)
+                            found_hit = True
+                            break
+                    if found_hit:
+                        break
 
-        if row[1]:  # handle blank thumbnail path
-            thumbnail = f'thumbnails/{row[1]}'
-        else:
-            thumbnail = '/static_files/img/no-preview.png'
-
-        if thumbnail is None:
-            print(f'Thumbnail is None for {path}')
-            thumbnail = '/static_files/img/no-preview.png'
-
-        labels_str = f'<span id="labels-for-{item_counter}">'
-        if row[2]:
-            labels = row[2].split(',')
-            separator = ''  # for first entry don't need to add a comma and space
-            for label in labels:
-                if not label:
-                    continue  # skip blank ones
-
-                label_key = f'search-{item_counter}-{label}'
-                labels_str += f'<span id="{label_key}">{separator}{label}<span class="ml-1">'   \
-                              + '<img src="/static_files/img/x-button.png" width="16px" ' \
-                              + f'onclick="remove_a_label(\'{label_key}\')">' \
-                              + '</span></span>'
-                separator = ', '  # subsequently, separate with comma + space
-
-        labels_str += '</span><button class="ml-2 p-0 btn-sm btn-primary compact-button"' \
-            + f'onclick="start_add_a_label(\'search-{item_counter}\')" data-toggle="modal"' \
-            + f'data-target="#add_label_modal">add</button>'
-        item_entry = f"""
-          <table width="100%" class="mt-2"><col width="230px"><col><col width="20px">
-              <tr><td width="230px" height="200px" class="align-top"><img src="{thumbnail}"></td>
-                  <td class="align-top">
-                     <table>
-                        <tr><td><b class="bigpath path-{item_counter}">{path}</b></td></tr>               
-                        <tr><td><i>Labels: {labels_str}</i></td></tr>
-                     </table>
-                  </td>
-                  <td class="align-top mark-check"><span class="ml-auto mr-0 p-0">
-                     <input type="checkbox" class="item-checkbox"
-                      id="checkbox-for-{item_counter}"></span>
-                  </td>
-              </tr>
-          </table>
-        """
-        result_string += item_entry
-        item_counter += 1
-
-    return result_string
+    # we create a simulated queue_entry, with filtered rows - pass that to the output
+    # generator and return that.
+    return generate_search_output({'rows': hits})
 
 
 @bottle_route('/items/<path:path>')
@@ -1003,7 +1103,7 @@ def open_item_native(path):
         # hoping this works as expected on Windows...
         subprocess.run(filepath, shell=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
+    return 'opened'
 
 @bottle_route('/static_files/<path:path>')
 def serve_static(path):
@@ -1064,12 +1164,7 @@ def remove_label():
         queue_entry = RESULTSQ.get(True, 150)
         RESULTSQ.task_done()
         rows = queue_entry['rows']
-        if len(rows) > 0:
-            # nothing needs to be done
-            return 'success'
-
-        # 2. remove if no other uses
-        else:
+        if len(rows) == 0:  # no other uses of the label, so can remove it
             textual_sql = f"DELETE FROM labels WHERE label = '{label}';"
             sqlcommand = sqltext(textual_sql)
             QUEUE.put({'type': 'gui', 'select': sqlcommand})
@@ -1078,6 +1173,9 @@ def remove_label():
             # set a longer timeout, cause we're not handling it if it expires
             queue_entry = RESULTSQ.get(True, 150)
             RESULTSQ.task_done()
+
+        # else nothing needs to be done because the label is still in use
+        return 'success'
 
 
 @bottle_route('/add_label')
@@ -1114,6 +1212,70 @@ def add_label():
     queue_entry = RESULTSQ.get(True, 150)
     RESULTSQ.task_done()
     return f'added {new_labels_str} to {path}'
+
+
+@bottle_route('/remove_bibleref')
+def remove_bibleref():
+    # /remove_bibleref?id=search-2-BR3
+    bibleref_id = bottle_request.query.id
+    print(f'bibleref_id: {bibleref_id}')
+    parts = bibleref_id.split('-')
+    assert len(parts) == 3
+    assert parts[0] == 'search'
+    item_counter = int(parts[1])
+    path = GLOBAL_DATA.search_results_map[item_counter]
+    bibleref_num = int(parts[2][2:])  # Skip over fixed 'BR' string
+    biblerefs = GLOBAL_DATA.search_results_biblerefs[item_counter]
+
+    # keep an entry in the list, but null out the actual reference to keep numbering consistent
+    biblerefs[bibleref_num] = None
+    prefix = ''
+    new_bibleref_str = ''
+    for br in biblerefs:
+        if br is not None:
+            new_bibleref_str += prefix + br
+            prefix = ','
+
+    textual_sql = f"UPDATE items set bibleref = '{new_bibleref_str}' WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+    return 'success'
+
+
+@bottle_route('/add_bibleref')
+def add_bibleref():
+    # /add_bibleref?item_id=3;biblerefs=4
+    item_id = int(bottle_request.query.item_id)
+    path = GLOBAL_DATA.search_results_map[item_id]
+    new_biblerefs_str = bottle_request.query.biblerefs
+    print(f'add_bibleref called with biblerefs = {new_biblerefs_str}')
+    new_biblerefs = new_biblerefs_str.split(',')
+    biblerefs_list = GLOBAL_DATA.search_results_biblerefs[item_id]
+    starting_num = len(biblerefs_list)
+    last_num = starting_num
+    for new_bibleref in new_biblerefs:
+        if biblerefs_list.count(new_bibleref) == 0:
+            biblerefs_list.append(new_bibleref)
+            last_num += 1
+    ignore_nones = [ br for br in biblerefs_list if br is not None ]
+    updated_bibleref_str = ','.join(ignore_nones)
+    print(f'updating biblerefs: {updated_bibleref_str}')
+    textual_sql = f"UPDATE items set bibleref = '{updated_bibleref_str}' WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+    print(f'added {new_biblerefs_str} to {path}')
+    return last_num
+
 
 @bottle_route('/thumbnails/<path:path>')
 def serve_thumb(path):
