@@ -14,6 +14,9 @@ What you need to run this:
 from imports import *     # need these in root namespace
 from constants import *   # root namespace
 
+# put a placeholder - so IDE works - this gets assigned for real in main()
+GLOBAL_DATA = None
+
 # noinspection PyPep8,Pylint
 bottle_debug(mode=True)
 
@@ -25,6 +28,7 @@ QUEUE = queue.Queue()
 # This is for the main thread to return results to the
 # GUI thread.
 RESULTSQ = queue.Queue()
+
 
 
 class DDMSException(Exception):
@@ -324,12 +328,18 @@ class GlobalData:
                               Column('shahash', String, index=True),
                               Column('thumb', String),
                               Column('labels', String),
-                              Column('bibleref', String, index=True))
+                              Column('bibleref', String, index=True),
+                              Column('related', String))
+
         self.tb_labels = Table('labels', metadata,
                                Column('label', String, index=True))
+
         self.tb_mdata = Table('mdata', metadata,
                          Column('keycol', String, primary_key=True, index=True),
                          Column('valcol', String))
+
+        self.tb_new = Table('new', metadata,
+                            Column('path', String, primary_key=True))
 
         if self.fresh_data:  # first time through, create the tables
             metadata.create_all(self.db_engine)
@@ -362,6 +372,7 @@ class GlobalData:
         self.updates_browse_list = False
         self.search_results_map = None
         self.search_results_biblerefs = None
+        self.New = False  # indicate whether new items have been added
 
     def nothing(self):
         """Keeping pylint happy"""
@@ -441,6 +452,8 @@ def get_preview(pathname):
 
 def add_item(pathname, shahash=None):
     """add a completely new item to database"""
+    global GLOBAL_DATA
+
     LOG.info('adding item')
     str_pathname = str(pathname)
     str_dir = str(pathname.parent)
@@ -464,6 +477,13 @@ def add_item(pathname, shahash=None):
     insert = GLOBAL_DATA.tb_items.insert(None)
     GLOBAL_DATA.db_conn.execute(insert, dir=str_dir, path=str_pathname, shahash=shahash,
                                 thumb=thumb_path, labels=labels, bibleref=None)
+    # add to new items table
+    insert = GLOBAL_DATA.tb_new.insert(None)
+    GLOBAL_DATA.db_conn.execute(insert, path=str_pathname)
+
+    # set the New flag
+    GLOBAL_DATA.New = True
+
     LOG.info('Added item: %s', pathname)
 
 
@@ -499,10 +519,6 @@ def update_item_hash_thumb(pathname, shahash=None):
         LOG.info('Update hash/preview of item %s', str_pathname)
 
 
-def remove_item_label():
-    """ Delete a label """
-
-
 def delete_item(pathname):
     """delete an item from the database"""
     item = search_path(pathname)
@@ -514,6 +530,11 @@ def delete_item(pathname):
         # delete item from database
         dele = GLOBAL_DATA.tb_items.delete(None).where(GLOBAL_DATA.tb_items.c.path == str(pathname))
         GLOBAL_DATA.db_conn.execute(dele)
+
+        # and from new table if present
+        dele = GLOBAL_DATA.tb_new.delete(None).where(GLOBAL_DATA.tb_new.c.path == str(pathname))
+        GLOBAL_DATA.db_conn.execute(dele)
+
         LOG.info('Deleted item, path was %s', pathname)
 
 
@@ -690,7 +711,7 @@ def initial_file_scan():
 
 
 
-# ----------------------------------------------------
+# -----------------------------------------------------------------------------------------------------
 # Callbacks for Web GUI and helper functions
 
 def generate_search_output(queue_entry):
@@ -785,14 +806,39 @@ def generate_search_output(queue_entry):
                       + f'data-target="#add_bibleref_modal">add</button>'
 
 
+        if row[4]:
+            related_items = row[4].split(',')
+            related_str = f'<span id="relateds-for-{item_counter}" num="{len(related_items)}">'
+            related_cntr = 0
+            separator = ''  # for first entry don't need to add a comma and space
+            for related_item in related_items:
+                related_key = f'search-{item_counter}-R{related_cntr}'
+                related_str += f'<span id="{related_key}">{separator}{related_item}<span class="ml-1">'   \
+                              + '<img src="/static_files/img/x-button.png" width="16px" ' \
+                              + f'onclick="remove_a_related(\'{related_key}\')">' \
+                              + '</span></span>'
+                separator = ', '  # subsequently, separate with comma + space
+                related_cntr += 1
+
+        else:
+            related_str = f'<span id="related-for-{item_counter}" num="0">'
+
+        if row[5] == 1:
+            new_indicator = f'<span class="ml-2" id="new-indicator-{item_counter}">' \
+                              + f'<img src="/static_files/img/new.png" width="60px" ' \
+                              + f'onclick="confirm_new_remove(\'{item_counter}\')"></span>'
+        else:
+            new_indicator = ''
+
         item_entry = f"""
           <table width="100%" class="mt-2"><col width="230px"><col><col width="20px">
               <tr><td width="230px" height="200px" class="align-top"><img src="{thumbnail}"></td>
                   <td class="align-top">
                      <table>
-                        <tr><td><b class="bigpath path-{item_counter}">{path}</b></td></tr>               
+                        <tr><td><b class="bigpath path-{item_counter}">{path}</b>{new_indicator}</td></tr>               
                         <tr><td><i>Labels: {labels_str}</i></td></tr>
                         <tr><td><i>Biblerefs: {biblerefs_str}</i></td></tr>
+                        <tr><td><i>Related: {related_str}</i></td></tr>
                      </table>
                   </td>
                   <td class="align-top mark-check"><span class="ml-auto mr-0 p-0">
@@ -849,13 +895,14 @@ def search_documents():
     # log_msg = f'directories = "{directories}", mode = "{dir_mode}", labels = "{labels}"'
     # LOG.info(log_msg)
 
-    textual_sql = ["SELECT path, thumb, labels, bibleref FROM items "]
+    textual_sql = ["SELECT items.path, items.thumb, items.labels, items.bibleref, " \
+                   "items.related, EXISTS(select new.path from new where (new.path == items.path)) FROM items ", ]
     if not directories:
         if not labels:
             # LOG.info('no dirs, no label, dir_mode: %s', dir_mode)
             # just do the top level unless in tree mode
             if dir_mode:
-                textual_sql.append("WHERE path NOT LIKE '%/%' ")
+                textual_sql.append("WHERE ( path NOT LIKE '%/%' )")
         else:
             textual_sql.append("WHERE ( ")
             firsttime = True
@@ -919,7 +966,7 @@ def search_documents():
                         textual_sql.append(" OR (path LIKE '{d}/%')")
             textual_sql.append(") )")
 
-    LOG.info('textual_sql: %s', str(','.join(textual_sql)))
+    # LOG.info('textual_sql: %s', str(','.join(textual_sql)))
 
     sqlcommand = None
     try:
@@ -989,7 +1036,8 @@ def search_biblerefs():
     labels = [rlabel for rlabel in query_string_dict['labels']
                if rlabel and len(rlabel) > 0]
 
-    textual_sql = ["SELECT path, thumb, labels, bibleref FROM items "]
+    textual_sql = ["SELECT items.path, items.thumb, items.labels, items.bibleref, " \
+                   "items.related, EXISTS(select new.path from new where (new.path == items.path)) FROM items ", ]
     if labels:
         textual_sql.append("WHERE ( ")
         conn_str = ''
@@ -1083,229 +1131,169 @@ def search_biblerefs():
     return generate_search_output({'rows': hits})
 
 
-@bottle_route('/items/<path:path>')
-def open_item(path):
-    """
-    Serves search result files to browser
-    """
-    return static_file(path, root=str(ROOT_DIRECTORY))
 
-@bottle_route('/items-native/<path:path>')
-def open_item_native(path):
-    """"
-    Starts up native tool for opening a given file
-    """
-    filepath = ROOT_DIRECTORY / path
-    if sys.platform == 'linux':
-        subprocess.run(f'/usr/bin/xdg-open {filepath}', shell=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+@bottle_route('/search_new')
+def search_new_documents():
+    """ Bottle handler for our new item searches.
+
+    Expect input query string like /search?dirs=a,b,c*labels=x,y,z for directory
+    contents and /search?trees=a,b,c*labels=x,y,z for tree contents.
+
+    What do we need for output? We need html code that gives what is necessary
+    to load up the main page view. For input we get a list of dirs and a list
+     of labels. """
+
+    query_string_dict = bottle_request.query.dict
+    # if no dirs or trees in the query string, then mode should be dirs
+    dir_mode = True
+    if 'dirs' in query_string_dict or 'trees' in query_string_dict:
+        if 'dirs' in query_string_dict:
+            directories = query_string_dict['dirs']
+        else:
+            directories = query_string_dict['trees']
+            # add wildcard to each directory
+            dir_mode = False
+        if directories and len(directories) == 1 and directories[0] == '':
+            directories = []
+
     else:
-        # hoping this works as expected on Windows...
-        subprocess.run(filepath, shell=True,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return 'opened'
+        directories = []
 
-@bottle_route('/static_files/<path:path>')
-def serve_static(path):
-    """
-    General service of static file paths
-    """
+    # correct windows backslashes to forward.
+    for idx, dire in enumerate(directories):
+        if '\\' in dire:
+            directories[idx] = dire.replace('\\','/')
+
+    if 'labels' in query_string_dict:
+        labels = query_string_dict['labels']
+    else:
+        labels = []
+
+    where_present = False  # whether a WHERE class as already been started
+
+    textual_sql = ["SELECT items.path, items.thumb, items.labels, items.bibleref, " \
+                   + "items.related, EXISTS(select new.path from new where (new.path == items.path)) FROM items ", ]
+    if not directories:
+        if not labels:
+            # just do the top level unless in tree mode
+            if dir_mode:
+                textual_sql.append("WHERE (path NOT LIKE '%/%' ")
+                where_present = True
+        else:
+            textual_sql.append("WHERE ( ")
+            where_present = True
+            firsttime = True
+            for label in labels:
+                if firsttime:
+                    firsttime = False
+                    conn_str = ''
+                else:
+                    conn_str = ' OR '
+                textual_sql.append(conn_str + f"labels LIKE '%{label}%' ")
+
+    else: # we have directory pieces
+        if not labels:
+            # have dirs without labels
+            firsttime = True
+            textual_sql.append("WHERE (")
+            where_present = True
+            for dire in directories:
+                if dir_mode:
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{dire}/%' AND path NOT LIKE '{dire}/%/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(f"OR (path LIKE '{dire}/%' AND path NOT LIKE " \
+                                               + f"'{dire}/%/%')")
+                else: # tree mode - want all subdirs
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{dire}/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(" OR (path LIKE '{d}/%')")
+
+        else:   # both labels and dirs
+            textual_sql.append("WHERE ( (")
+            where_present = True
+            firsttime = True
+            for label in labels:
+                if firsttime:
+                    firsttime = False
+                    conn_str = ""
+                else:
+                    conn_str = " OR "
+                textual_sql.append(conn_str + f"labels LIKE '%{label}%' ")
+
+            textual_sql.append(") AND (")
+
+            firsttime = True
+            for dire in directories:
+                if dir_mode:
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{dire}/%' AND path NOT LIKE '{dire}/%/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(f"OR (path LIKE '{dire}/%' AND path NOT LIKE "  \
+                                               f"'{dire}/%/%')")
+                else: # tree mode - want all subdirs
+                    if firsttime:
+                        textual_sql.append(f"(path LIKE '{dire}/%')")
+                        firsttime = False
+                    else:
+                        textual_sql.append(" OR (path LIKE '{d}/%')")
+            textual_sql.append(") ")
+
+    # Add the NEW condition
+    if where_present:
+        textual_sql.append(" AND ")
+    else:
+        textual_sql.append("WHERE ( ")
+
+    textual_sql.append(" path in (SELECT path FROM new) )")
+
+    LOG.info('textual_sql: %s', str(' '.join(textual_sql)))
+
+    sqlcommand = None
     try:
-        LOG.info('serving static path %s', path)
-        return static_file('static_files/'+path, root=str(SCRIPT_DIR))
-    except Exception as exception_info:
-        LOG.info('Exception in serving static_file(): ')
-        LOG.info(sys.exc_info())
-        LOG.info(exception_info)
-        return "error"
+        sqlcommand = sqltext(''.join(textual_sql))
+    except TypeError as exc:
+        msg = '<h2>Error creating SQL query</h2>'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        LOG.error(msg)
+        return msg
+    except Exception as exc:
+        msg = '<h2>Error creating SQL query</h2>'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        LOG.error(msg)
+        return msg
 
-
-@bottle_route('/remove_label')
-def remove_label():
-    # /remove_label?id=search-2-peaches
-    label_id = bottle_request.query.id
-    parts = label_id.split('-')
-    assert len(parts) == 3
-    assert parts[0] == 'search'
-    path = GLOBAL_DATA.search_results_map[int(parts[1])]
-    label = parts[2]
-    # get existing labels
-    textual_sql = f"SELECT labels from items WHERE path = '{path}';"
-    sqlcommand = sqltext(textual_sql)
-    QUEUE.put({'type': 'gui', 'select': sqlcommand})
-    while RESULTSQ.empty():
-        time.sleep(0.01)
-    # set a longer timeout, cause we're not handling it if it expires
-    queue_entry = RESULTSQ.get(True, 150)
-    rows = queue_entry['rows']
-    RESULTSQ.task_done()
-    assert len(rows) == 1
-    existing_labels = (rows[0][0]).split(',')
-    if existing_labels.count(label) >= 0:
-        existing_labels.remove(label)
-        new_label_str = ','.join(existing_labels)
-        textual_sql = f"UPDATE items set labels = '{new_label_str}' WHERE path = '{path}';"
-        sqlcommand = sqltext(textual_sql)
+    queue_entry = {"rows": []}
+    try:
+        # Ok, we are in the wrong thread to run a SQL query - so use the queues to get
+        # the request to the right thread. Results are
         QUEUE.put({'type': 'gui', 'select': sqlcommand})
         while RESULTSQ.empty():
-            time.sleep(0.01)
-        # set a longer timeout, cause we're not handling it if it expires
+            time.sleep(0.02)
         queue_entry = RESULTSQ.get(True, 150)
         RESULTSQ.task_done()
+        # more processing below
 
-        # now - update the labels table, as needed
-        # 1. are there any other items still having the same label?
-        textual_sql = f"SELECT labels from items where labels LIKE '%{label}%'"
-        sqlcommand = sqltext(textual_sql)
-        QUEUE.put({'type': 'gui', 'select': sqlcommand})
-        while RESULTSQ.empty():
-            time.sleep(0.01)
-        # set a longer timeout, cause we're not handling it if it expires
-        queue_entry = RESULTSQ.get(True, 150)
-        RESULTSQ.task_done()
-        rows = queue_entry['rows']
-        if len(rows) == 0:  # no other uses of the label, so can remove it
-            textual_sql = f"DELETE FROM labels WHERE label = '{label}';"
-            sqlcommand = sqltext(textual_sql)
-            QUEUE.put({'type': 'gui', 'select': sqlcommand})
-            while RESULTSQ.empty():
-                time.sleep(0.01)
-            # set a longer timeout, cause we're not handling it if it expires
-            queue_entry = RESULTSQ.get(True, 150)
-            RESULTSQ.task_done()
+    except Exception as exc:
+        msg = 'Error executing SQL query'
+        msg += '<pre>' + str(exc) + '</pre>'
+        msg += '<pre>' + str(sqlcommand) + '</pre>'
+        msg += '<h4>Result</h4>'
+        msg += '<pre>' + str(queue_entry['rows']) + '</pre>'
+        LOG.error(msg)
+        return msg
 
-        # else nothing needs to be done because the label is still in use
-        return 'success'
+    # OK, arbitrary choice - once you search the new items, clear the hot indicator
+    GLOBAL_DATA.New = False
 
-
-@bottle_route('/add_label')
-def add_label():
-    # /add_label?item_id=3;labels=obstanant
-    item_id = bottle_request.query.item_id
-    path = GLOBAL_DATA.search_results_map[int(item_id)]
-    new_labels_str = bottle_request.query.labels
-    new_labels = new_labels_str.split(',')
-    # get existing labels
-    textual_sql = f"SELECT labels from items WHERE path = '{path}';"
-    sqlcommand = sqltext(textual_sql)
-    QUEUE.put({'type': 'gui', 'select': sqlcommand})
-    while RESULTSQ.empty():
-        time.sleep(0.01)
-    # set a longer timeout, cause we're not handling it if it expires
-    queue_entry = RESULTSQ.get(True, 150)
-    rows = queue_entry['rows']
-    RESULTSQ.task_done()
-    assert len(rows) == 1
-    raw_labels = str(rows[0][0])
-    if raw_labels == '':
-        existing_labels = list()
-    else:
-        existing_labels = raw_labels.split(',')
-    updated_labels = list(set(existing_labels + new_labels))  # filter through set() to drop duplicates
-    updated_label_str = ','.join(updated_labels)
-    textual_sql = f"UPDATE items set labels = '{updated_label_str}' WHERE path = '{path}';"
-    sqlcommand = sqltext(textual_sql)
-    QUEUE.put({'type': 'gui', 'select': sqlcommand})
-    while RESULTSQ.empty():
-        time.sleep(0.01)
-    # set a longer timeout, cause we're not handling it if it expires
-    queue_entry = RESULTSQ.get(True, 150)
-    RESULTSQ.task_done()
-    return f'added {new_labels_str} to {path}'
-
-
-@bottle_route('/remove_bibleref')
-def remove_bibleref():
-    # /remove_bibleref?id=search-2-BR3
-    bibleref_id = bottle_request.query.id
-    print(f'bibleref_id: {bibleref_id}')
-    parts = bibleref_id.split('-')
-    assert len(parts) == 3
-    assert parts[0] == 'search'
-    item_counter = int(parts[1])
-    path = GLOBAL_DATA.search_results_map[item_counter]
-    bibleref_num = int(parts[2][2:])  # Skip over fixed 'BR' string
-    biblerefs = GLOBAL_DATA.search_results_biblerefs[item_counter]
-
-    # keep an entry in the list, but null out the actual reference to keep numbering consistent
-    biblerefs[bibleref_num] = None
-    prefix = ''
-    new_bibleref_str = ''
-    for br in biblerefs:
-        if br is not None:
-            new_bibleref_str += prefix + br
-            prefix = ','
-
-    textual_sql = f"UPDATE items set bibleref = '{new_bibleref_str}' WHERE path = '{path}';"
-    sqlcommand = sqltext(textual_sql)
-    QUEUE.put({'type': 'gui', 'select': sqlcommand})
-    while RESULTSQ.empty():
-        time.sleep(0.01)
-    # set a longer timeout, cause we're not handling it if it expires
-    queue_entry = RESULTSQ.get(True, 150)
-    RESULTSQ.task_done()
-    return 'success'
-
-
-@bottle_route('/add_bibleref')
-def add_bibleref():
-    # /add_bibleref?item_id=3;biblerefs=4
-    item_id = int(bottle_request.query.item_id)
-    path = GLOBAL_DATA.search_results_map[item_id]
-    new_biblerefs_str = bottle_request.query.biblerefs
-    print(f'add_bibleref called with biblerefs = {new_biblerefs_str}')
-    new_biblerefs = new_biblerefs_str.split(',')
-    biblerefs_list = GLOBAL_DATA.search_results_biblerefs[item_id]
-    starting_num = len(biblerefs_list)
-    last_num = starting_num
-    for new_bibleref in new_biblerefs:
-        if biblerefs_list.count(new_bibleref) == 0:
-            biblerefs_list.append(new_bibleref)
-            last_num += 1
-    ignore_nones = [ br for br in biblerefs_list if br is not None ]
-    updated_bibleref_str = ','.join(ignore_nones)
-    print(f'updating biblerefs: {updated_bibleref_str}')
-    textual_sql = f"UPDATE items set bibleref = '{updated_bibleref_str}' WHERE path = '{path}';"
-    sqlcommand = sqltext(textual_sql)
-    QUEUE.put({'type': 'gui', 'select': sqlcommand})
-    while RESULTSQ.empty():
-        time.sleep(0.01)
-    # set a longer timeout, cause we're not handling it if it expires
-    queue_entry = RESULTSQ.get(True, 150)
-    RESULTSQ.task_done()
-    print(f'added {new_biblerefs_str} to {path}')
-    return last_num
-
-
-@bottle_route('/thumbnails/<path:path>')
-def serve_thumb(path):
-    """
-    General service of thumbnail image file paths
-    """
-    try:
-        LOG.info('serving thumbnail %s', path)
-        return static_file(path, root=str(THUMBNAIL_DIRECTORY))
-    except Exception as exception_info:
-        LOG.info('Exception in serving static_file(): ')
-        LOG.info(sys.exc_info())
-        LOG.info(exception_info)
-        return "error"
-
-
-@bottle_route('/')
-def handle_home_path():
-    """routing for / is to static_files/html/home.html """
-
-    path = 'static_files/html/home.html'
-    LOG.info('serving home_path:  %s', path)
-    return static_file(path, root=str(SCRIPT_DIR))
-
-
-@bottle_route('/favicon.ico')
-def favicon():
-    """ Return the favicon """
-    path = 'static_files/img/favicon.png'
-    return static_file(path, root=str(SCRIPT_DIR))
+    return generate_search_output(queue_entry)
 
 
 
@@ -1450,6 +1438,7 @@ def browse_list():
     # }
 
 
+
 @bottle_route('/labels')
 def get_labels():
     "return JSON of array of labels"
@@ -1467,6 +1456,336 @@ def get_labels():
     results = [str(r[0]) for r in rows]
 
     return json.dumps(results)
+
+
+
+@bottle_route('/remove_label')
+def remove_label():
+    # /remove_label?id=search-2-peaches
+    label_id = bottle_request.query.id
+    parts = label_id.split('-')
+    assert len(parts) == 3
+    assert parts[0] == 'search'
+    path = GLOBAL_DATA.search_results_map[int(parts[1])]
+    label = parts[2]
+    # get existing labels
+    textual_sql = f"SELECT labels from items WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    assert len(rows) == 1
+    existing_labels = (rows[0][0]).split(',')
+    if existing_labels.count(label) >= 0:
+        existing_labels.remove(label)
+        new_label_str = ','.join(existing_labels)
+        textual_sql = f"UPDATE items set labels = '{new_label_str}' WHERE path = '{path}';"
+        sqlcommand = sqltext(textual_sql)
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+
+        # now - update the labels table, as needed
+        # 1. are there any other items still having the same label?
+        textual_sql = f"SELECT labels from items where labels LIKE '%{label}%'"
+        sqlcommand = sqltext(textual_sql)
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+        rows = queue_entry['rows']
+        if len(rows) == 0:  # no other uses of the label, so can remove it
+            textual_sql = f"DELETE FROM labels WHERE label = '{label}';"
+            sqlcommand = sqltext(textual_sql)
+            QUEUE.put({'type': 'gui', 'select': sqlcommand})
+            while RESULTSQ.empty():
+                time.sleep(0.01)
+            # set a longer timeout, cause we're not handling it if it expires
+            queue_entry = RESULTSQ.get(True, 150)
+            RESULTSQ.task_done()
+
+        # else nothing needs to be done because the label is still in use
+        return 'success'
+
+
+@bottle_route('/add_label')
+def add_label():
+    # /add_label?item_id=3;labels=obstanant
+    item_id = bottle_request.query.item_id
+    path = GLOBAL_DATA.search_results_map[int(item_id)]
+    new_labels_str = bottle_request.query.labels
+    new_labels = new_labels_str.split(',')
+    # get existing labels
+    textual_sql = f"SELECT labels from items WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    assert len(rows) == 1
+    raw_labels = str(rows[0][0])
+    if raw_labels == '':
+        existing_labels = list()
+    else:
+        existing_labels = raw_labels.split(',')
+    updated_labels = list(set(existing_labels + new_labels))  # filter through set() to drop duplicates
+    updated_label_str = ','.join(updated_labels)
+    textual_sql = f"UPDATE items set labels = '{updated_label_str}' WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+
+    # add to labels table, if not already present
+    for label in new_labels:
+        textual_sql = f"INSERT INTO labels(label) VALUE ('{label}') "  \
+                + f"WHERE NOT EXISTS(SELECT 1 FROM labels WHERE label = '{label}');"
+        sqlcommand = sqltext(textual_sql)
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+
+    return f'added {new_labels_str} to {path}'
+
+
+@bottle_route('/remove_bibleref')
+def remove_bibleref():
+    # /remove_bibleref?id=search-2-BR3
+    bibleref_id = bottle_request.query.id
+    print(f'bibleref_id: {bibleref_id}')
+    parts = bibleref_id.split('-')
+    assert len(parts) == 3
+    assert parts[0] == 'search'
+    item_counter = int(parts[1])
+    path = GLOBAL_DATA.search_results_map[item_counter]
+    bibleref_num = int(parts[2][2:])  # Skip over fixed 'BR' string
+    biblerefs = GLOBAL_DATA.search_results_biblerefs[item_counter]
+
+    # keep an entry in the list, but null out the actual reference to keep numbering consistent
+    biblerefs[bibleref_num] = None
+    prefix = ''
+    new_bibleref_str = ''
+    for br in biblerefs:
+        if br is not None:
+            new_bibleref_str += prefix + br
+            prefix = ','
+
+    textual_sql = f"UPDATE items set bibleref = '{new_bibleref_str}' WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+    return 'success'
+
+
+@bottle_route('/add_bibleref')
+def add_bibleref():
+    # /add_bibleref?item_id=3;biblerefs=4
+    item_id = int(bottle_request.query.item_id)
+    path = GLOBAL_DATA.search_results_map[item_id]
+    new_biblerefs_str = bottle_request.query.biblerefs
+    print(f'add_bibleref called with biblerefs = {new_biblerefs_str}')
+    new_biblerefs = new_biblerefs_str.split(',')
+    biblerefs_list = GLOBAL_DATA.search_results_biblerefs[item_id]
+    starting_num = len(biblerefs_list)
+    last_num = starting_num
+    for new_bibleref in new_biblerefs:
+        if biblerefs_list.count(new_bibleref) == 0:
+            biblerefs_list.append(new_bibleref)
+            last_num += 1
+    ignore_nones = [ br for br in biblerefs_list if br is not None ]
+    updated_bibleref_str = ','.join(ignore_nones)
+    print(f'updating biblerefs: {updated_bibleref_str}')
+    textual_sql = f"UPDATE items set bibleref = '{updated_bibleref_str}' WHERE path = '{path}';"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+    print(f'added {new_biblerefs_str} to {path}')
+    return last_num
+
+@bottle_route('/relate')
+def relate_items():
+    raw_items = bottle_request.query.dict['items'][0]
+    print('raw_items: ', type(raw_items).__name__)
+    print(raw_items)
+    items = raw_items.split(',')
+    indicies = (int(items[0]), int(items[1]))
+    paths = (GLOBAL_DATA.search_results_map[indicies[0]],
+             GLOBAL_DATA.search_results_map[indicies[1]])
+    textual_sql = f"SELECT path, related from items WHERE path in ('{paths[0]}', '{paths[1]}');"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    existing_relateds = ['', '']
+    for row in rows:
+        which_one = paths.index(row[0])
+        other_one = which_one ^ 1
+        if row[1] is None:
+            new_related = [paths[other_one], ]
+        else:
+            # filter through set to eliminate duplicates
+            new_related = list(set(row[1].split(',') + [paths[other_one],]))
+        textual_sql = f"UPDATE items set related = '{','.join(new_related)}' WHERE path = '{row[0]}';"
+        sqlcommand = sqltext(textual_sql)
+        QUEUE.put({'type': 'gui', 'select': sqlcommand})
+        while RESULTSQ.empty():
+            time.sleep(0.01)
+        # set a longer timeout, cause we're not handling it if it expires
+        queue_entry = RESULTSQ.get(True, 150)
+        RESULTSQ.task_done()
+
+    return 'relationship established'
+
+
+# Routes related to New indicator
+
+def check_new_table():
+    textual_sql = "SELECT 1 from new;"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    rows = queue_entry['rows']
+    RESULTSQ.task_done()
+    if len(rows) > 0:
+        return True
+    else:
+        return False
+
+@bottle_route('/new')
+def check_new():
+    if GLOBAL_DATA.New:
+        return 'hot'
+    else:
+        if check_new_table():
+            return 'cold'
+        else:
+            return 'none'
+
+@bottle_route('/new-reset')
+def reset_new():
+    global GLOBAL_DATA
+    GLOBAL_DATA.New = False
+
+@bottle_route('/new-remove')
+def remove_new():
+    """Remove the selected path (via item id) from the new table"""
+    item_id = int(bottle_request.query.item_id)
+    path = GLOBAL_DATA.search_results_map[item_id]
+    textual_sql = f"DELETE FROM new WHERE ( path = '{path}' );"
+    sqlcommand = sqltext(textual_sql)
+    QUEUE.put({'type': 'gui', 'select': sqlcommand})
+    while RESULTSQ.empty():
+        time.sleep(0.01)
+    # set a longer timeout, cause we're not handling it if it expires
+    queue_entry = RESULTSQ.get(True, 150)
+    RESULTSQ.task_done()
+    # did we happen to remove the last new item? If so, shut off the lights
+    if not check_new_table():
+        GLOBAL_DATA.New = False
+
+
+
+# Routes that serve up files
+
+# ok, this one doesn't quite fit the above category, but it's close
+@bottle_route('/items-native/<path:path>')
+def open_item_native(path):
+    """"
+    Starts up native tool for opening a given file
+    """
+    filepath = str( ROOT_DIRECTORY / path )
+    if sys.platform == 'linux':
+        subprocess.run(f'/usr/bin/xdg-open {filepath}', shell=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        # hoping this works as expected on Windows...
+        subprocess.run(filepath, shell=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 'opened'
+
+@bottle_route('/items/<path:path>')
+def open_item(path):
+    """
+    Serves search result files to browser
+    """
+    return static_file(str(path), root=str(ROOT_DIRECTORY))
+
+@bottle_route('/static_files/<path:path>')
+def serve_static(path):
+    """
+    General service of static file paths
+    """
+    try:
+        LOG.info('serving static path %s', path)
+        return static_file('static_files/'+path, root=str(SCRIPT_DIR))
+    except Exception as exception_info:
+        LOG.info('Exception in serving static_file(): ')
+        LOG.info(sys.exc_info())
+        LOG.info(exception_info)
+        return "error"
+
+@bottle_route('/thumbnails/<path:path>')
+def serve_thumb(path):
+    """
+    General service of thumbnail image file paths
+    """
+    try:
+        LOG.info('serving thumbnail %s', path)
+        return static_file(path, root=str(THUMBNAIL_DIRECTORY))
+    except Exception as exception_info:
+        LOG.info('Exception in serving static_file(): ')
+        LOG.info(sys.exc_info())
+        LOG.info(exception_info)
+        return "error"
+
+
+@bottle_route('/')
+def handle_home_path():
+    """routing for / is to static_files/html/home.html """
+
+    path = 'static_files/html/home.html'
+    LOG.info('serving home_path:  %s', path)
+    return static_file(path, root=str(SCRIPT_DIR))
+
+
+@bottle_route('/favicon.ico')
+def favicon():
+    """ Return the favicon """
+    path = 'static_files/img/favicon.png'
+    return static_file(path, root=str(SCRIPT_DIR))
 
 
 # other bottle notes

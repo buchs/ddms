@@ -25,6 +25,19 @@
         font-weight: normal;
       }
 
+      .new-indicator-none {
+        color: #e0e0e0;
+      }
+
+      .new-indicator-cold {
+        color: #7777ff;
+      }
+
+      .new-indicator-hot {
+        color: #ff0000;
+        font-weight: bold;
+      }
+
       .label-removal {
         background-image: url('/static_files/img/label-removal.png');
       }
@@ -130,17 +143,22 @@
                   </button>
                 </li>
 
-                <li class="my-0 ml-2 dropdown">
-                    <button class="btn-sm compact-button btn btn-primary dropdown-toggle" type="button" id="dropdown1"
+                <li class="my-0 ml-2 p-0 dropdown">
+                    <button class="nav-button p-0 my-0 compact-button btn btn-primary dropdown-toggle" type="button" id="dropdown1"
                     data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                     more</button>
-                    <div class="dropdown-menu" aria-labelledby=""dropdownMenuButton">
+                    <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
                     <a class="dropdown-item" onclick="$('#search-biblerefs-modal').modal('toggle')" href="#">Search Biblerefs</a>
                     <a class="dropdown-item" href="#">a later feature</a>
                     <a class="dropdown-item" href="#">a later feature</a>
                     </div>
                 </li>
 
+                <li class="my-0 ml-2 p-0">
+                   <button class="btn compact-button my-0 p-0 new-indicator-none btn" id="new-indicator"
+                           onclick="new_indicator_click()" type="button">
+                      N</button>
+                </li>
               </ul>
             </form>
         </nav>
@@ -206,17 +224,21 @@
                      </div>
                      <div class="modal-body">
                          <form onsubmit="return false;">
-                             <div class="form-group">
+                             <div class="mb-0 pb-0 form-group">
                                  <input type="radio" id="bulk-radio-add" name="bulk-action-radiosX" checked tabindex="4">
-                                 <label for="bulk-radio-add">Add labels</label>
+                                 <label style="margin-bottom:0" for="bulk-radio-add">Add labels</label>
+                             </div>
+                             <div class="my-0 pt-0 form-group">
+                                 <span class="ml-4"></span><input type="text" class="" tabindex="1"
+                                    id="bulk_action_label_input" placeholder="enter labels here" />
                              </div>
                              <div class="form-group">
                                  <input type="radio" id="bulk-radio-del" name="bulk-action-radiosX" tabindex="5">
                                  <label for="bulk-radio-del">Delete labels</label>
                              </div>
-                             <div class="my-8 form-group">
-                                 <input type="text" class="" tabindex="1"
-                                    id="bulk_action_label_input" placeholder="enter labels here" />
+                             <div class="form-group">
+                                 <input type="radio" id="bulk-radio-rel" name="bulk-action-radiosX" tabindex="6">
+                                 <label for="bulk-radio-rel">Relate items</label>
                              </div>
                              <button type="button" class="btn btn-primary ml-0 mr-auto my-5"
                                       tabindex="2" onclick="finish_bulk_action()" data-dismiss="modal">
@@ -309,9 +331,22 @@
             <ol>
             </ol>
 
-            <h4>Open questions</h4>
-            <ol><li>show should filesystem monitor communicate to the web server changes that are noticed?
-                <li>how should the web GUI indicate changes?</li></ol>
+            <h4>New Features</h4>
+            <ol><li><u>New Indicator</u> - upper right, to right of the <i>more</i> button. If this is gray, there are no
+                new items (added by file system monitor) and nothing left on a new item list from prior sessions or this one,
+                If this "N" is blue,
+                there are cold items on the new list, that is, there are new items but no new items
+                since you last visited New Items. If "N" is red, there are new items since you started or since
+                you last visited New Items. Visit New Items by clicking on the N and you do a search for them. The results
+                of the search are just like regular searches, but only contain new items. Search results with new items
+                will display a "New" icon to the right of the pathname, Clicking on that icon will remove the item from
+                the new items list. Pressing shift when clicking the "N" results in the red indicator being cleared. No
+                items are removed from the new items list in this action.
+                <li><u>Related items</u> - capability to identify two and only two items which are related to each other.
+                Set as related by viewing both items in search results and checking the checkbox to the right to select
+                those items. Next click the <i>bulk action</i> button at the top right of the search results and then
+                select <i>Relate items</i> radio button and then the <i>Apply Action</i> button</li>
+            </ol>
             <hr>
         </div>
     </div>

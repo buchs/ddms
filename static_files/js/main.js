@@ -1,5 +1,6 @@
 
 
+const refresh_interval = 60; // seconds
 const root_node_name = '{root}';
 var tree_dir_state = 'dirs';
 
@@ -121,12 +122,13 @@ function search_callback(data) {
     $('.bigpath').single_double_click(single_click_callback, double_click_callback);
 }
 
-function do_main_search() {
+function do_main_search(new_search=false) {
     var labels = jQuery('#selectedLabels').val().toLowerCase();
     var dirs = jQuery('#selectedDirs').val();
     if (labels === '')  labels = undefined;
     if (dirs === '') dirs = undefined;
     var uri_string = '/search';
+    if (new_search) uri_string = '/search_new';
     var sep = '?';
     if (dirs !== undefined) {
         uri_string += sep + tree_dir_state + '=' + dirs;
@@ -331,86 +333,120 @@ function get_labels(item) {
 
 
 function finish_bulk_action() {
+
     var marked_item;
     var marked = find_marked();
-    // (bulk_action_input[0].value);
-    const new_labels = bulk_action_input[0].value.toLowerCase().split(',');
 
-    // first order of business, is to determine which of the labels provided is
-    // currently used. We will ask the GUI that info.
-    var use_chart = {};
-    for (marked_item of marked) {
-        var item_labels = get_labels(marked_item);
-        var found_labels = new Array();
-        for (var n of new_labels) {
-            if (item_labels.includes(n)) {
-                found_labels.push(true);
-            } else {
-                found_labels.push(false);
-            }
-        }
-        use_chart[marked_item] = found_labels;
-    }
+    // Is this a Relate operation?
+    if ( $('#bulk-radio-rel')[0].checked ) {
+        // For relating items
+       if (marked.length != 2) {
+           alert('You need to select just two items to Relate them');
+       } else {
+           var url = `/relate?items=${marked[0]},${marked[1]}`;
+           jQuery.get(url); // tell the backend
+           // now try updating the GUI...
+           var paths = new Array();
+           var key, index, item;
+           // grab all the paths
+           for (index=0; index < 2; index++)
+           {
+               key = `.path-${marked[index]}`;
+               item = $(key);
+               paths.push(item[0].textContent);
+           }
+           // now do editing
+           for (index=0; index < 2; index++)
+           {
+               var other = index ^ 1;
+               var html_insert = ''
+               var insertion_point = $(`#related-for-${index}`)[0];
+               insertion_point.append(paths[other])
+           }
+       }
 
+    // Else we have label operations
+    } else {
 
-    // if adding new labels
-    if ( $('#bulk-radio-add')[0].checked ) {
+        // (bulk_action_input[0].value);
+        const new_labels = bulk_action_input[0].value.toLowerCase().split(',');
 
+        // first order of business, is to determine which of the labels provided is
+        // currently used. We will ask the GUI that info.
+        var use_chart = {};
         for (marked_item of marked) {
-            var copy_new_labels = new_labels.slice();
-            var uc = use_chart[marked_item];
-
-            // traverse the list in reverse order so we can remove labels from the
-            // array in a loop
-            for (var i = copy_new_labels.length - 1; i >= 0; i--) {
-                // if we are going to add a label that already exists, lets skip that;
-                if (uc[i]) {
-                    // this one already present - remove from array
-                    copy_new_labels.splice(i, 1);
+            var item_labels = get_labels(marked_item);
+            var found_labels = new Array();
+            for (var n of new_labels) {
+                if (item_labels.includes(n)) {
+                    found_labels.push(true);
+                } else {
+                    found_labels.push(false);
                 }
             }
-            // store new labels in the database
-            jQuery.get('/add_label?item_id=' + marked_item + ';labels=' + copy_new_labels);
-
-            // add new labels to search results
-            var labels_span_id = `#labels-for-${marked_item}`;
-            var labels_span = $(labels_span_id);
-            var prefix = '';
-            // determine if there are existing labels
-            if (labels_span.children().length > 0) prefix = ', ';
-            var label_key;
-            var labels_str = ''; // build this incrementally for each label
-            copy_new_labels.forEach(function(label) {
-                label_key = `search-${marked_item}-${label}`;
-                labels_str += `<span id="${label_key}">${prefix}${label}<span class="ml-1">`
-                              + '<img src="/static_files/img/x-button.png" width="16px" '
-                              + "onclick=\"remove_a_label('" + label_key + "')\"></span></span>";
-                prefix = ', ';  // for subsequent labels separate with comma + space
-            });
-            // insert the new html into the page before the Add button
-            labels_span.append(labels_str);
+            use_chart[marked_item] = found_labels;
         }
 
-    } else {  // deleting the labels
 
-        for (marked_item of marked) {
-            var copy_new_labels = new_labels.slice();
-            var uc = use_chart[marked_item];
+        // if adding new labels
+        if ( $('#bulk-radio-add')[0].checked ) {
 
-            // traverse the list in reverse order so we can remove labels from the
-            // array in a loop
-            for (var i = copy_new_labels.length - 1; i >= 0; i--) {
-                // if we are going to delete a label that doesn't exist, lets skip that;
-                if (! uc[i]) {
-                    // this one already present - remove from array
-                    copy_new_labels.splice(i, 1);
+            for (marked_item of marked) {
+                var copy_new_labels = new_labels.slice();
+                var uc = use_chart[marked_item];
+
+                // traverse the list in reverse order so we can remove labels from the
+                // array in a loop
+                for (var i = copy_new_labels.length - 1; i >= 0; i--) {
+                    // if we are going to add a label that already exists, lets skip that;
+                    if (uc[i]) {
+                        // this one already present - remove from array
+                        copy_new_labels.splice(i, 1);
+                    }
                 }
+                // store new labels in the database
+                jQuery.get('/add_label?item_id=' + marked_item + ';labels=' + copy_new_labels);
+
+                // add new labels to search results
+                var labels_span_id = `#labels-for-${marked_item}`;
+                var labels_span = $(labels_span_id);
+                var prefix = '';
+                // determine if there are existing labels
+                if (labels_span.children().length > 0) prefix = ', ';
+                var label_key;
+                var labels_str = ''; // build this incrementally for each label
+                copy_new_labels.forEach(function(label) {
+                    label_key = `search-${marked_item}-${label}`;
+                    labels_str += `<span id="${label_key}">${prefix}${label}<span class="ml-1">`
+                                  + '<img src="/static_files/img/x-button.png" width="16px" '
+                                  + "onclick=\"remove_a_label('" + label_key + "')\"></span></span>";
+                    prefix = ', ';  // for subsequent labels separate with comma + space
+                });
+                // insert the new html into the page before the Add button
+                labels_span.append(labels_str);
             }
 
-            copy_new_labels.forEach(function(label) {
-                var label_key = `search-${marked_item}-${label}`;
-                remove_a_label(label_key);
-            })
+        } else {  // deleting the labels
+
+            for (marked_item of marked) {
+                var copy_new_labels = new_labels.slice();
+                var uc = use_chart[marked_item];
+
+                // traverse the list in reverse order so we can remove labels from the
+                // array in a loop
+                for (var i = copy_new_labels.length - 1; i >= 0; i--) {
+                    // if we are going to delete a label that doesn't exist, lets skip that;
+                    if (! uc[i]) {
+                        // this one already present - remove from array
+                        copy_new_labels.splice(i, 1);
+                    }
+                }
+
+                copy_new_labels.forEach(function(label) {
+                    var label_key = `search-${marked_item}-${label}`;
+                    remove_a_label(label_key);
+                })
+            }
         }
     }
 
@@ -426,7 +462,7 @@ function cancel_bulk_action() {
 
 // ---------- For adding/removing biblerefs from items --------
 
-var active_item_id;  // keeps track of what we are working on
+// already above --> var active_item_id;  // keeps track of what we are working on
 const add_biblerefs_modal = jQuery('#add_bibleref_modal');
 
 // Set up autocomplete for the add bibleref modal dialog for adding biblerefs to items
@@ -638,15 +674,73 @@ jQuery.fn.single_double_click = function(single_click_callback, double_click_cal
 
 function single_click_callback(item_id, item_path) {
     // open in browser or at least via browser
-    console.log('single click handler. path: ' + item_id + ', ' + item_path);
     var win = window.open('items/' + item_path, '_blank');
 }
 
 function double_click_callback(item_id, item_path) {
-    console.log('double click handler. path: ' + item_id + ', ' + item_path);
     jQuery.get('items-native/' + item_path);
 }
 
+// ---------- New List Maintenance --------------------------------------------------
+
+function confirm_new_remove(item_id) {
+    var path = $(`.path-${item_id}`)[0].textContent;
+    if (confirm(`Remove ${path} from new list?`)) {
+        jQuery.get(`/new-remove?item_id=${item_id}`);
+    }
+    // remove from GUI
+    $(`#new-indicator-${item_id}`)[0].remove();
+    update_new_indicator();
+}
+
+function new_indicator_click() {
+    // is shift depressed, then user just wants to reset the indicator, else run a search for new items
+    if (event.shiftKey) {
+        jQuery.get('new-reset');
+        update_new_indicator();
+    } else {
+        do_main_search(true);
+        update_new_indicator();
+    }
+}
+
+
+// ---------- Handle New Indicator and other dynamic stuff --------------------------
+
+function update_new_indicator() {
+
+    function update_new_indicator_cb(data) {
+
+        const classes = $('#new-indicator')[0].classList;
+        if (data == 'hot') {
+            classes.remove('new-indicator-cold');
+            classes.remove('new-indicator-none');
+            classes.add('new-indicator-hot');
+        }
+        else if (data == 'cold') {
+            classes.add('new-indicator-cold');
+            classes.remove('new-indicator-none');
+            classes.remove('new-indicator-hot');
+        }
+        else {
+            classes.remove('new-indicator-cold');
+            classes.add('new-indicator-none');
+            classes.remove('new-indicator-hot');
+        }
+    }
+
+    jQuery.get('/new', update_new_indicator_cb)
+
+}
+
+
+function periodic_tasks() {
+    update_new_indicator();
+}
+
+setInterval(periodic_tasks, refresh_interval*1000);
+// run right away too
+periodic_tasks();
 
 
 /* ---------- Notes for reference --------------------------

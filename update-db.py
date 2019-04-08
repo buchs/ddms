@@ -24,10 +24,15 @@ def stmp_db_version(new_version):
             print('stmp_db_version - trouble inserting into db')
             sys.exit(1)
     else:
-        result = sqlupdate(tb_mdata).where(tb_mdata.c.keycol==VERSION_KEYCOL).values(valcol=str(new_version))
+        update_stmt = sqlupdate(tb_mdata).where(
+            tb_mdata.c.keycol==VERSION_KEYCOL).values(valcol=str(new_version))
+        result = db_conn.execute(update_stmt)
         if result.rowcount != 1:
             print('stmp_db_version - trouble updating db')
             sys.exit(1)
+
+    print(f'database updated from version {new_version-1} to {new_version}')
+
 
 def get_db_version():
     # select valcol from mdata where keycol = VERSION_KEYCOL;
@@ -57,17 +62,10 @@ def main():
     db_conn = db_engine.connect()
     metadata = MetaData()
 
-    # tb_items = Table('items', metadata,
-    #                       Column('dir', String, index=True),
-    #                       Column('path', String, primary_key=True, index=True),
-    #                       Column('shahash', String, index=True),
-    #                       Column('thumb', String),
-    #                       Column('labels', String),
-    #                       Column('bibleref', String, index=True))
-
+    # we will always be working with this table, to update db version
     tb_mdata = Table(mdata_table, metadata,
-                          Column('keycol', String, primary_key=True, index=True),
-                          Column('valcol', String))
+                     Column('keycol', String, primary_key=True, index=True),
+                     Column('valcol', String))
 
     # Now we have sections that do version updates from version to version + 1
     # Each section does one of these and then returns True, so this is a big case/select statement.
@@ -95,9 +93,29 @@ def main():
     # else, we have a version number
     version = get_db_version()
     print(f'database version {version}')
+
+    # blocks of version upgrades follow
     if version == 1:
-        # make_backup() in each section
-        print('no additional database updates to apply')
+        make_backup()
+        # make the "new" table
+        tb_new = Table('new', metadata,
+                       Column('path', String, primary_key=True))
+        metadata.create_all(db_engine)  # create new "new" table
+
+        # add in related column to items
+        textual_sql = "ALTER TABLE items ADD 'related' string;"
+        sqlcommand = make_query(textual_sql)
+        results = db_conn.execute(sqlcommand)
+        if results.rowcount != -1:
+            print('could not alter table items')
+            sys.exit(1)
+
+        stmp_db_version(version+1)
+
+    elif version == 2:
+            # make_backup() in each section
+            print('no additional database updates to apply')
+            # stmp_db_version(version + 1)
     else:
         print(f'what is this db version we found {version}?')
 
