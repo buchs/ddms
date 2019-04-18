@@ -329,7 +329,8 @@ class GlobalData:
                               Column('thumb', String),
                               Column('labels', String),
                               Column('bibleref', String, index=True),
-                              Column('related', String))
+                              Column('related', String),
+                              Column('date_created', String))
 
         self.tb_labels = Table('labels', metadata,
                                Column('label', String, index=True))
@@ -430,6 +431,9 @@ def get_hash(pathname):
     # read every file as an array of bytes
     return sha512(pathname.read_bytes()).digest()
 
+        
+        
+
 
 def get_preview(pathname):
     """ get jpeg preview of item """
@@ -461,7 +465,12 @@ def add_item(pathname, shahash=None):
         str_dir = ''
 
     if shahash is None:
-        shahash = get_hash(pathname)
+        # Handle exception thrown if file is deleted between discovery and adding.
+        try:
+            shahash = get_hash(pathname)
+        except:
+            LOG.info('File has disappeared')
+            return
     # generate jpeg thumbnail file and capture its path as string
 
     thumb_path = get_preview(pathname)
@@ -476,7 +485,7 @@ def add_item(pathname, shahash=None):
     labels = ''
     insert = GLOBAL_DATA.tb_items.insert(None)
     GLOBAL_DATA.db_conn.execute(insert, dir=str_dir, path=str_pathname, shahash=shahash,
-                                thumb=thumb_path, labels=labels, bibleref=None)
+                                thumb=thumb_path, labels=labels, bibleref=None, date_created=time.ctime(os.path.getctime(str_pathname)))
     # add to new items table
     insert = GLOBAL_DATA.tb_new.insert(None)
     GLOBAL_DATA.db_conn.execute(insert, path=str_pathname)
@@ -524,9 +533,10 @@ def delete_item(pathname):
     item = search_path(pathname)
     if item:
         # clean up the preview
-        thumb = Path(item.thumbnail)
-        if thumb.exists():
-            thumb.unlink()
+        if item.thumbnail:
+            thumb = Path(item.thumbnail)
+            if thumb.exists():
+                thumb.unlink()
         # delete item from database
         dele = GLOBAL_DATA.tb_items.delete(None).where(GLOBAL_DATA.tb_items.c.path == str(pathname))
         GLOBAL_DATA.db_conn.execute(dele)
@@ -830,6 +840,11 @@ def generate_search_output(queue_entry):
         else:
             new_indicator = ''
 
+        if row[6]:
+            date_created = f'{row[6]}'
+        else:
+            date_created = f'Not available'
+
         item_entry = f"""
           <table width="100%" class="mt-2"><col width="230px"><col><col width="20px">
               <tr><td width="230px" height="200px" class="align-top"><img src="{thumbnail}"></td>
@@ -839,6 +854,7 @@ def generate_search_output(queue_entry):
                         <tr><td><i>Labels: {labels_str}</i></td></tr>
                         <tr><td><i>Biblerefs: {biblerefs_str}</i></td></tr>
                         <tr><td><i>Related: {related_str}</i></td></tr>
+                        <tr><td><i>Date Created: {date_created}</i></td></tr>
                      </table>
                   </td>
                   <td class="align-top mark-check"><span class="ml-auto mr-0 p-0">
@@ -883,9 +899,11 @@ def search_documents():
         directories = []
 
     # correct windows backslashes to forward.
-    for idx, dire in enumerate(directories):
-        if '\\' in dire:
-            directories[idx] = dire.replace('\\','/')
+    # Scratch this -- need to do the correction in the sql instead since paths have backslashes in the database
+    # for idx, dire in enumerate(directories):
+    #   if '\\' in dire:
+    #        directories[idx] = dire.replace('\\','/')
+    #        LOG.info(directories[idx])
 
     if 'labels' in query_string_dict:
         labels = query_string_dict['labels']
@@ -896,7 +914,7 @@ def search_documents():
     # LOG.info(log_msg)
 
     textual_sql = ["SELECT items.path, items.thumb, items.labels, items.bibleref, " \
-                   "items.related, EXISTS(select new.path from new where (new.path == items.path)) FROM items ", ]
+                   "items.related, EXISTS(select new.path from new where (new.path == items.path)), items.date_created FROM items ", ]
     if not directories:
         if not labels:
             # LOG.info('no dirs, no label, dir_mode: %s', dir_mode)
@@ -968,9 +986,16 @@ def search_documents():
 
     # LOG.info('textual_sql: %s', str(','.join(textual_sql)))
 
+    
     sqlcommand = None
     try:
-        sqlcommand = sqltext(''.join(textual_sql))
+        if sys.platform == 'linux':
+            sqlcommand = sqltext(''.join(textual_sql))
+        else:
+            #replace forward slashes with backslashes in Windows
+            sqlcommand = sqltext(''.join(textual_sql).replace('/','\\'))
+        #LOG.info(sqlcommand)
+    
     except TypeError as exc:
         msg = '<h2>Error creating SQL query</h2>'
         msg += '<pre>' + str(exc) + '</pre>'
@@ -1037,7 +1062,7 @@ def search_biblerefs():
                if rlabel and len(rlabel) > 0]
 
     textual_sql = ["SELECT items.path, items.thumb, items.labels, items.bibleref, " \
-                   "items.related, EXISTS(select new.path from new where (new.path == items.path)) FROM items ", ]
+                   "items.related, EXISTS(select new.path from new where (new.path == items.path)), items.date_created FROM items ", ]
     if labels:
         textual_sql.append("WHERE ( ")
         conn_str = ''
@@ -1173,7 +1198,7 @@ def search_new_documents():
     where_present = False  # whether a WHERE class as already been started
 
     textual_sql = ["SELECT items.path, items.thumb, items.labels, items.bibleref, " \
-                   + "items.related, EXISTS(select new.path from new where (new.path == items.path)) FROM items ", ]
+                   + "items.related, EXISTS(select new.path from new where (new.path == items.path)), items.date_created FROM items ", ]
     if not directories:
         if not labels:
             # just do the top level unless in tree mode
@@ -1553,7 +1578,7 @@ def add_label():
 
     # add to labels table, if not already present
     for label in new_labels:
-        textual_sql = f"INSERT INTO labels(label) VALUE ('{label}') "  \
+        textual_sql = f"INSERT INTO labels(label) SELECT '{label}' "  \
                 + f"WHERE NOT EXISTS(SELECT 1 FROM labels WHERE label = '{label}');"
         sqlcommand = sqltext(textual_sql)
         QUEUE.put({'type': 'gui', 'select': sqlcommand})

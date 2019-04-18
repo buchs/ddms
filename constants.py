@@ -8,7 +8,7 @@ if 'USER' in os.environ and os.environ['USER'] == 'buchs' and sys.platform == 'l
     SCRIPT_DIR = Path('/home/buchs/Dropbox/DDMS')
 else:
     # Should be David
-    ROOT_DIRECTORY = Path("C:\\Users\\dbuchs\\Dropbox\\To File\\test").expanduser().resolve()
+    ROOT_DIRECTORY = Path("C:\\Users\\dbuchs\\Dropbox\\DDMS").expanduser().resolve()
     DATABASE_PATH = Path('C:\\Users\\dbuchs\\Dropbox\\data.sqlite').expanduser().resolve()
     SCRIPT_DIR = Path(__file__).expanduser().absolute().parent
 
